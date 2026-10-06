@@ -31,8 +31,22 @@ Python · Streamlit · PyMuPDF · Tesseract · Microsoft Presidio · spaCy · py
 
 ## Status
 
-Phase 0 foundation initialized. Document extraction, PII detection, redaction,
-and privacy validation are not implemented yet; the formats above are planned.
+Phase 1A native PDF, DOCX, and PPTX text extraction is available in the backend.
+The Streamlit app remains a foundation screen. OCR, PII detection, redaction,
+and privacy validation are not implemented yet.
+
+Native extraction returns the shared `Document` / `ContentBlock` models:
+
+```python
+from privacygate.extraction import extract_document
+
+document = extract_document("sample.pdf")  # Also accepts DOCX/PPTX paths.
+```
+
+Extracted text is unvalidated and may contain PII. Extraction is not approval
+for downstream AI use. PDFs with fewer than 20 alphanumeric native-text
+characters raise `OCRRequiredError`; this is a text-availability heuristic,
+not scanned-page detection. OCR is never attempted in Phase 1A.
 
 ## Development setup
 
