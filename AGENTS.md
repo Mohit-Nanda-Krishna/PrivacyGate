@@ -41,4 +41,15 @@ After substantial work, update `PROGRESS.md` with:
 - known issues,
 - next recommended task.
 
+## Dependency Management
+
+- Python version is locked to Python 3.11.
+- Use `uv` for dependency management.
+- `pyproject.toml` and `uv.lock` are the dependency source of truth.
+- Do not manually edit `uv.lock`.
+- Add dependencies using `uv add`.
+- Do not introduce new dependencies unless required by the task.
+- Do not replace existing libraries without explicit approval.
+- Core functionality must not depend on external API keys.
+
 Do not rewrite historical progress unnecessarily.

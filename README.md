@@ -31,4 +31,35 @@ Python · Streamlit · PyMuPDF · Tesseract · Microsoft Presidio · spaCy · py
 
 ## Status
 
-Development in progress.
+Phase 0 foundation initialized. Document extraction, PII detection, redaction,
+and privacy validation are not implemented yet; the formats above are planned.
+
+## Development setup
+
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then run
+these commands from the repository root:
+
+```sh
+uv sync
+uv run python scripts/check_env.py
+uv run streamlit run app.py
+uv run pytest
+```
+
+Stop Streamlit with Ctrl+C before running tests, or use a second terminal.
+Python is restricted to 3.11.x. uv creates `.venv` and can download Python 3.11
+if needed. `pyproject.toml` and the uv-generated `uv.lock` are the dependency
+source of truth; use `uv sync --locked` to require the existing lockfile.
+
+Alternatively, run `./scripts/setup.ps1` in PowerShell or
+`bash scripts/setup.sh` on macOS/Linux or Git Bash. Both sync the locked
+environment and run the diagnostic.
+
+Tesseract is a separate system executable: installing `pytesseract` does not
+install it. Missing Tesseract produces a warning and does not prevent Phase 0
+tests or the app from running. Before OCR work, install Tesseract separately
+and put it on `PATH`. Setup does not install Tesseract or spaCy language models;
+language-model configuration belongs to the detection phase.
+
+No API keys or `.env` file are required. `.env.example` documents the current
+configuration; `.env` and `.venv` are ignored by Git.
