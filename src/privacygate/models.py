@@ -64,3 +64,5 @@ class AuditReport:
     counts_by_category: dict[str, int] = field(default_factory=dict)
     counts_by_risk: dict[RiskLevel, int] = field(default_factory=dict)
     validation: ValidationResult = field(default_factory=ValidationResult)
+    # Per-page extraction status (native / ocr / failed, attempts, seconds); PDFs only.
+    page_report: list[dict[str, Any]] = field(default_factory=list)

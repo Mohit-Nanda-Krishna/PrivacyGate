@@ -31,6 +31,7 @@ def generate_audit_report(
         counts_by_category=counts_by_category,
         counts_by_risk=counts_by_risk,
         validation=validation_result,
+        page_report=[dict(entry) for entry in document.metadata.get("page_report", [])],
     )
 
 
@@ -46,6 +47,10 @@ def audit_report_to_dict(report: AuditReport) -> dict[str, Any]:
             "status": report.validation.status,
             "reason": report.validation.reason,
             "residual_count": len(report.validation.residual_entities),
+        },
+        "extraction": {
+            "pages": [dict(entry) for entry in report.page_report],
+            "failed_pages": [entry["page"] for entry in report.page_report if entry.get("status") == "failed"],
         },
     }
 
