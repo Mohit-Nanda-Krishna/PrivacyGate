@@ -31,3 +31,25 @@ This document tracks all contributions, architectural enhancements, implementati
 - **Verification & Test Results**:
   - `uv run pytest`: 109 passed, 3 skipped, 0 failures.
 
+---
+
+## Commit: Phase 3 — Risk Classification, Semantic Redaction & Fail-Closed Privacy Gate
+
+- **Author**: Harshit (`harshit-git404`)
+- **Scope**: End-to-End Privacy Firewall Pipeline, Semantic Redaction, Fail-Closed Secondary Scan, Audit Reporting
+- **Files Added / Changed**:
+  - `src/privacygate/risk/classifier.py` & `src/privacygate/risk/__init__.py`: Implemented 3-tier risk classification (`CRITICAL`, `HIGH`, `MEDIUM`) per PRD Section 16 with aggregation metrics.
+  - `src/privacygate/redaction/redactor.py` & `src/privacygate/redaction/__init__.py`: Implemented context-preserving semantic redaction with standardized placeholders (`[PERSON]`, `[EMAIL]`, `[EMPLOYEE_ID]`, etc.), reverse offset replacement to preserve string indices, non-mutating sanitized document generation, and audit records.
+  - `src/privacygate/validation/privacy_gate.py` & `src/privacygate/validation/__init__.py`: Implemented fail-closed secondary privacy gate. Rescans sanitized content, filters deliberate placeholders, and blocks downstream LLM forwarding if residual PII or errors are found.
+  - `src/privacygate/audit/report.py` & `src/privacygate/audit/__init__.py`: Implemented zero-PII audit report generation, category/risk counts, and JSON serialization.
+  - `src/privacygate/pipeline.py`: Connected end-to-end orchestration pipeline (`run_pipeline` and `process_document`) uniting Extraction -> Detection -> Risk -> Redaction -> Verification -> Audit.
+  - `tests/test_risk.py`: Added tests for risk mapping, entity classification, and risk tier summaries.
+  - `tests/test_redaction.py`: Added tests for placeholder generation, text splicing, non-mutating document redaction, and structure preservation.
+  - `tests/test_validation.py`: Added tests for APPROVED status on clean documents, BLOCKED status on residual PII, and fail-closed exception handling.
+  - `tests/test_audit.py`: Added tests for privacy-preserved metrics and JSON serialization.
+  - `tests/test_pipeline.py`: Added end-to-end integration tests on synthetic documents with PII, fixture documents, and error scenarios.
+  - `PROGRESS.md`: Recorded Phase 3 completion, test metrics, and next steps.
+- **Verification & Test Results**:
+  - `uv run pytest`: 121 passed, 3 skipped, 0 failures across all 124 test items.
+
+

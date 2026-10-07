@@ -266,6 +266,49 @@ Phase 2 completed. Moving to Phase 3: Redaction, Risk Classification & Privacy G
 
 ### Next task
 
-**Phase 3 Redaction, Risk Classification & Privacy Gate.** Implement semantic placeholder
-redaction (`[PERSON]`, `[EMAIL]`, etc.), risk classifier (`CRITICAL`, `HIGH`, `MEDIUM`),
-fail-closed secondary privacy validation scan, and audit report generation.
+Phase 3 completed. Moving to Phase 4: User Interface & Dashboard.
+
+## Phase 3 - Redaction, Risk Classification & Fail-Closed Privacy Gate (2026-10-07)
+
+### Completed
+
+- Implemented sensitivity risk classification in `risk/classifier.py` mapping entity types to
+  PRD Section 16 tiers (`CRITICAL`: Government IDs, Bank Accounts, Cards; `HIGH`: Employee/Client/
+  Customer IDs, Emails, Phones; `MEDIUM`: Names, Locations, IP addresses, Dates) with batch and
+  summary helpers (`summarize_risks`).
+- Implemented context-preserving semantic redaction in `redaction/redactor.py` replacing detected
+  PII with typed placeholders (`[PERSON]`, `[EMAIL]`, `[EMPLOYEE_ID]`, `[GOVERNMENT_ID]`, etc.)
+  in reverse offset order to prevent index corruption. The original document is non-mutating,
+  producing a sanitized `Document` with preserved source metadata and audit-safe `RedactionRecord`s.
+- Implemented fail-closed secondary privacy gate in `validation/privacy_gate.py` rescanning the
+  sanitized document. Ignores intentional semantic placeholders while blocking on any residual
+  PII or internal detection failure (`ValidationResult(status="BLOCKED")`). Safe documents receive
+  `APPROVED`.
+- Implemented zero-PII audit report generation in `audit/report.py` compiling document metadata,
+  detected count, redacted count, category breakdown, risk breakdown, and validation status,
+  with JSON/dictionary serialization without persisting raw PII text.
+- Implemented complete end-to-end processing pipeline in `pipeline.py`: `run_pipeline(file_path)`
+  and `process_document(file_path)` orchestrating Extraction -> Detection -> Risk Classification
+  -> Redaction -> Secondary Scan -> Audit Report.
+- Added comprehensive test suites: `tests/test_risk.py`, `tests/test_redaction.py`,
+  `tests/test_validation.py`, `tests/test_audit.py`, and updated `tests/test_pipeline.py`.
+  All 121 tests passed (3 skipped due to local Tesseract binary).
+
+### Verification
+
+- Local platform: Windows, Python 3.11.9, uv 0.12.23.
+- `uv run pytest`: **121 passed, 3 skipped in 23.21s**, exit code 0.
+- End-to-end integration verified on synthetic DOCX with multi-category PII and PDF fixture.
+- Zero raw PII persisted in audit logs or serialized JSON.
+
+### Known limitations
+
+- Non-standard custom placeholder brackets (e.g. `{PERSON}` instead of `[PERSON]`) should be
+  configured if upstream formatters alter placeholder syntax.
+- Fail-closed validation strictly treats any detection error as BLOCKED.
+
+### Next task
+
+**Phase 4 Interactive User Interface.** Implement multi-screen Streamlit web application in `app.py`
+supporting file upload, structure inspection, PII analysis breakdown, before/after redaction diff,
+privacy gate status badge, and downloadable audit report.
