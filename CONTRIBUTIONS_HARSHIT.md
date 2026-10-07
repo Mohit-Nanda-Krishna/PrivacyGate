@@ -71,5 +71,24 @@ This document tracks all contributions, architectural enhancements, implementati
   - `uv run pytest tests/test_app.py`: 1 passed in 5.88s.
   - `uv run pytest`: 121 passed, 3 skipped, 0 failures.
 
+---
+
+## Commit: Phase 5 — Evaluation & Ground Truth Benchmark Engine
+
+- **Author**: Harshit (`harshit-git404`)
+- **Scope**: Evaluation Framework, PRD Quality Metrics (Precision, Recall, F1, Residual Rate, Structure Retention)
+- **Files Added / Changed**:
+  - `src/privacygate/evaluation.py`: Implemented evaluation and benchmark algorithms according to PRD Sections 26 and 27:
+    - Precision, Recall, and F1 calculation.
+    - Residual PII rate estimation post-redaction.
+    - Ground truth span matcher (`evaluate_detection`).
+    - Structure retention scorer (`measure_structure_retention`) testing block count and coordinate integrity.
+  - `tests/test_evaluation.py`: Added 4 tests verifying metric calculation accuracy, ground truth alignment, and structure preservation scoring.
+  - `PROGRESS.md`: Recorded Phase 5 completion, test metrics, and next steps.
+- **Verification & Test Results**:
+  - `uv run pytest tests/test_evaluation.py`: 4 passed in 0.11s.
+  - `uv run pytest`: 125 passed, 3 skipped, 0 failures across 128 test items.
+
+
 
 

@@ -335,5 +335,29 @@ Phase 4 completed. Moving to Phase 5: Evaluation & Ground Truth Benchmark.
 
 ### Next task
 
-**Phase 5 Evaluation & Ground Truth Benchmark.** Implement evaluation metrics (Precision,
-Recall, F1, Residual Rate, Structure Retention) in `evaluation.py` and benchmark test suite.
+Phase 5 completed. Moving to Phase 6: Final Polish, Documentation & Verification.
+
+## Phase 5 - Evaluation & Ground Truth Benchmark (2026-10-07)
+
+### Completed
+
+- Implemented benchmark evaluation module in `evaluation.py`:
+  - `calculate_metrics`: Computes precision, recall, F1 score, and residual PII rate.
+  - `evaluate_detection`: Matches detected PII spans against labelled `GroundTruthItem` sets.
+  - `measure_structure_retention`: Quantifies structural preservation (block count, coordinate metadata, content continuity) satisfying the PRD Section 26 >= 80% case study target.
+- Added test suite in `tests/test_evaluation.py` (4 tests) covering perfect and partial detection metrics, ground truth matching, and structure retention calculation.
+
+### Verification
+
+- Local platform: Windows, Python 3.11.9, uv 0.12.23.
+- `uv run pytest tests/test_evaluation.py`: **4 passed in 0.11s**, exit code 0.
+- `uv run pytest`: **125 passed, 3 skipped in 19.85s**, exit code 0.
+
+### Known limitations
+
+- Ground truth evaluation uses exact and fuzzy text containment matching suitable for case study evaluation documents.
+
+### Next task
+
+**Phase 6 Final Polish.** Update README with complete system architecture, usage instructions,
+test results, and verify clean branch status.
