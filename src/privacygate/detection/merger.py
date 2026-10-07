@@ -25,6 +25,9 @@ SPECIFICITY: dict[str, int] = {
     "PORTFOLIO_ID": 3,
     "PROJECT_CODE": 3,
     "ACCOUNT_NUMBER": 3,
+    # A structured address outranks NER fragments inside it ("Ashwood Lane" as PERSON).
+    "ADDRESS": 3,
+    "DATE_OF_BIRTH": 2,
     "EMAIL_ADDRESS": 2,
     "EMAIL": 2,
     "PHONE_NUMBER": 2,

@@ -30,6 +30,7 @@ RISK_MAPPING: dict[str, RiskLevel] = {
     "PHONE": "HIGH",
     "PHONE_NUMBER": "HIGH",
     "ADDRESS": "HIGH",
+    "DATE_OF_BIRTH": "HIGH",
 
     # MEDIUM: Names, locations, dates, lower-risk contextual markers
     "PERSON": "MEDIUM",

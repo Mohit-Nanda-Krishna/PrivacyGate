@@ -18,6 +18,20 @@ CUSTOM_RULES: tuple[tuple[str, str, str], ...] = (
     ("ACCOUNT_NUMBER", r"account(?:[ \t]+(?:no\.?|number|#))?", r"(?:ACC-\d{4,12}|\d{5,12})"),
 )
 
+# Personnel identifiers that are distinctive enough to need no label. OCR often
+# turns I into 1/l/| and 0 into O, so those swaps are tolerated.
+_OCR_DIGIT = "[0-9OoIl|]"
+# Alphanumeric boundaries rather than \b: OCR leaves "EMP-37655_" where \b fails.
+_START, _END = "(?<![0-9A-Za-z])", "(?![0-9A-Za-z])"
+STANDALONE_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
+    # Employee IDs: EMP-38104, EMP100245, OCR "EMF-38104".
+    ("EMPLOYEE_ID", re.compile(rf"{_START}E[MW][PF]-?\s?(?=(?:{_OCR_DIGIT}*\d){{3}}){_OCR_DIGIT}{{5,8}}{_END}")),
+    # Director IDs: DIR-0042, OCR "D1R-0042".
+    ("EMPLOYEE_ID", re.compile(rf"{_START}D[I1l|]R-(?=(?:{_OCR_DIGIT}*\d){{2}}){_OCR_DIGIT}{{4}}{_END}")),
+    # Vendor personnel IDs: MER-IN-4471, MER-PL-1187 (may wrap after "MER-").
+    ("EMPLOYEE_ID", re.compile(rf"{_START}MER-\s*[A-Z]{{2}}-\d{{4}}{_END}")),
+)
+
 CUSTOM_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
     (
         entity_type,
@@ -91,7 +105,17 @@ def detect_custom(
                     )
                 )
 
-    # 2. Dynamic user-added patterns (if any)
+    # 2. Unlabelled personnel identifiers
+    for entity_type, pattern in STANDALONE_RULES:
+        for match in pattern.finditer(content_block.text):
+            span = match.span()
+            if span not in seen_spans:
+                seen_spans.add(span)
+                entities.append(
+                    make_entity(content_block, entity_type, span[0], span[1], 0.9, "custom:personnel_id")
+                )
+
+    # 3. Dynamic user-added patterns (if any)
     if extra_patterns:
         for rule in extra_patterns:
             for match in rule.pattern.finditer(content_block.text):

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import re
-from typing import Sequence
-from privacygate.detection import detect_pii
+
+from privacygate.detection import detect_pii, merge_entities
+from privacygate.detection.names import NameRegistry
 from privacygate.models import Document, PIIEntity, ValidationResult
+from privacygate.validation.residual_checks import GATE_DETECTOR_PREFIX, independent_residual_checks
 
 # Regex matching our standard placeholder patterns, e.g. [PERSON], [EMAIL], [PII]
 PLACEHOLDER_PATTERN = re.compile(r"\[[A-Z_]+\]")
@@ -20,10 +22,16 @@ def _is_placeholder_span(text: str, start: int, end: int) -> bool:
 def validate_privacy(
     sanitized_doc: Document,
     confidence_threshold: float = 0.40,
+    name_registry: NameRegistry | None = None,
 ) -> ValidationResult:
     """Perform secondary privacy scan on sanitized document.
 
-    Fails closed: Any residual PII or validation error blocks the document.
+    Two independent layers run: the full hybrid detector, and blunt checks
+    that do not depend on the NER model (names and variants from the original
+    document's registry, 7+ digit runs, e-mail and ID shapes). Any residual
+    from either layer blocks. Fails closed: any validation error blocks, and
+    the reason names only the error type, never its message (which could
+    contain document text).
     """
     try:
         # Scan sanitized document using full hybrid detection
@@ -45,12 +53,19 @@ def validate_privacy(
 
             residual_entities.append(entity)
 
+        independent = independent_residual_checks(sanitized_doc.blocks, name_registry)
+        # Merge overlapping residuals so a later redaction pass can splice them safely;
+        # merged detector provenance keeps the "gate:" marker.
+        residual_entities = merge_entities(residual_entities + independent)
+
         if residual_entities:
+            independent_count = len(independent)
             return ValidationResult(
                 status="BLOCKED",
                 reason=(
                     f"Residual PII detected: {len(residual_entities)} sensitive "
-                    "entity/entities remain after redaction."
+                    "entity/entities remain after redaction"
+                    + (f" ({independent_count} found by independent residual checks)." if independent_count else ".")
                 ),
                 residual_entities=residual_entities,
             )
@@ -62,9 +77,18 @@ def validate_privacy(
         )
 
     except Exception as exc:
-        # Strictly fail closed on any internal error or pipeline failure
+        # Strictly fail closed. Exception messages can quote document text, so only the type is reported.
         return ValidationResult(
             status="BLOCKED",
-            reason=f"Privacy gate failed closed due to unexpected validation error: {type(exc).__name__}: {exc}",
+            reason=f"Privacy gate failed closed due to unexpected validation error: {type(exc).__name__}",
             residual_entities=[],
         )
+
+
+def found_by_independent_checks(result: ValidationResult) -> bool:
+    """True if any residual came from a check that does not rely on the primary detectors."""
+    return any(
+        source.startswith(GATE_DETECTOR_PREFIX)
+        for entity in result.residual_entities
+        for source in entity.detector.split("|")
+    )
