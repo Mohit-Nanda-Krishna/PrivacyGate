@@ -103,9 +103,54 @@ def test_tokens_restart_per_single_run(tmp_path):
 
 def test_names_from_one_file_are_swept_in_another(tmp_path):
     first = _docx(tmp_path / "a.docx", "Owner Ottoline V. Quarrington signs off.")
-    second = _docx(tmp_path / "b.docx", "Quarrington approved the change.")
+    second = _docx(tmp_path / "b.docx", "O. Quarrington approved the change; Ottoline Quarrington agreed.")
     batch = run_batch([first, second])
     assert "Quarrington" not in _sanitized(batch.results[1])
+
+
+def test_cross_file_sweep_never_uses_bare_names(tmp_path):
+    first = _docx(tmp_path / "a.docx", "Approved by Mark Read (m.read@example.test).")
+    second = _docx(
+        tmp_path / "b.docx",
+        "Please read the policy before signing.",
+        "Read the policy twice. I Read it.",
+        "Signed by M. Read and Mark Read.",
+    )
+    batch = run_batch([first, second])
+    text = _sanitized(batch.results[1])
+    assert "Please read the policy" in text
+    assert "Read the policy twice. I Read it." in text
+    assert "M. Read" not in text and "Mark Read" not in text
+
+
+def test_similar_names_get_different_tokens(tmp_path):
+    first = _docx(tmp_path / "a.docx", "Led by Zinnia Ravelstone (z.ravelstone@example.test).")
+    second = _docx(tmp_path / "b.docx", "Owner: Zinnia Q. Ravelsby (z.ravelsby@example.test).")
+    batch = run_batch([first, second])
+    persons = [s for s in batch.cross_file.values() if s.entity_type == "PERSON"]
+    assert len(persons) == 2 and all(len(s.files) == 1 for s in persons)
+
+
+def test_redaction_records_hold_no_original_values(tmp_path):
+    batch = run_batch(_files(tmp_path))
+    for result in batch.results:
+        for record in result.redactions:
+            assert set(vars(record)) == {"block_id", "entity_type", "placeholder", "source_location"}
+        dump = repr(result.redactions)
+        for value in ("Abernathy", "Quarrington", "Vale", "example.test", "example.org"):
+            assert value not in dump
+
+
+def test_app_clears_previous_results_when_selection_changes(tmp_path):
+    batch = run_batch(_files(tmp_path))
+    app = AppTest.from_file(str(APP_PATH))
+    app.session_state["batch_result"] = batch
+    app.session_state["pipeline_result"] = batch.results[0]
+    app.session_state["results_signature"] = (("policy.docx", 1), ("pack.docx", 2))  # a different file set
+    app.run(timeout=60)
+    assert not app.exception
+    assert "batch_result" not in app.session_state and "pipeline_result" not in app.session_state
+    assert not any("Batch Overview" in str(m.value) for m in app.markdown)
 
 
 def test_describe_location_labels():

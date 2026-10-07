@@ -148,10 +148,12 @@ def run_batch(file_paths: Sequence[str | Path], max_passes: int = 1) -> BatchRes
 
     Every file is extracted and detected first. The per-file name registries
     are merged so the same person (and their name variants) resolves to one
-    [PERSON_n] token in every file, and each file is additionally swept for
-    names registered from the other files. Each file still gets its own
-    privacy gate decision; the gate checks against the batch registry.
-    A single path behaves like run_pipeline().
+    [PERSON_n] token in every file. Each file is additionally swept for names
+    registered from the other files, using full names and dotted-initial forms
+    only ("Quentin R. Abernathy", "Q. Abernathy"), never a bare surname or
+    first name. Each file gets its own privacy gate decision, checked against
+    its own registry exactly as in run_pipeline(). A single path behaves like
+    run_pipeline().
     """
     detected = []
     for file_path in file_paths:
@@ -162,10 +164,12 @@ def run_batch(file_paths: Sequence[str | Path], max_passes: int = 1) -> BatchRes
     batch_registry = merge_registries(registry for _, _, registry in detected)
     pseudonyms = PseudonymSession(name_registry=batch_registry)
     results = []
-    for document, entities, _ in detected:
-        swept = sweep_names([block for block in document.blocks if block.text.strip()], batch_registry)
+    for document, entities, registry in detected:
+        swept = sweep_names(
+            [block for block in document.blocks if block.text.strip()], batch_registry, full_names_only=True,
+        )
         combined = _merge_by_block(document, list(entities) + swept)
-        results.append(_sanitize(document, combined, batch_registry, pseudonyms, max_passes))
+        results.append(_sanitize(document, combined, registry, pseudonyms, max_passes))
 
     cross_file = build_cross_file_index(
         [BatchFile(r.document, r.entities, r.redactions) for r in results], pseudonyms, batch_registry,

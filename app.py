@@ -214,6 +214,17 @@ if not selected and selected_sample != "None (Upload Custom File)":
     selected = [(selected_sample, sample_files[selected_sample])]
 selected += [(name, sample_files[name]) for name in extra_samples if name not in dict(selected)]
 
+# Results (and the batch token session behind them) belong to one file set. When the
+# selection changes, drop them so tokens from a previous batch are never shown or reused.
+selection_signature = tuple(
+    (name, getattr(source, "size", None) if not isinstance(source, Path) else str(source))
+    for name, source in selected
+)
+previous_signature = st.session_state.get("results_signature")
+if previous_signature is not None and previous_signature != selection_signature:
+    for key in ("pipeline_result", "batch_result", "results_signature"):
+        st.session_state.pop(key, None)
+
 if selected:
     names = ", ".join(f"`{name}`" for name, _ in selected)
     st.write(f"**Selected Document{'s' if len(selected) > 1 else ''}:** {names}")
@@ -248,12 +259,14 @@ if selected:
                         summary.occurrences = [(renames.get(file, file), where) for file, where in summary.occurrences]
                 st.session_state["batch_result"] = batch
                 st.session_state["pipeline_result"] = results[0]
+                st.session_state["results_signature"] = selection_signature
             except Exception as exc:
                 # Project errors carry vetted messages; anything else may quote document text.
                 detail = f": {exc}" if isinstance(exc, (ExtractionError, DetectionError)) else ""
                 st.error(f"Processing failed closed: {type(exc).__name__}{detail}")
                 st.session_state["pipeline_result"] = None
                 st.session_state["batch_result"] = None
+                st.session_state.pop("results_signature", None)
             finally:
                 for temp_path in temp_paths:
                     temp_path.unlink(missing_ok=True)

@@ -179,21 +179,31 @@ def _compatible_middles(known: tuple[str, ...], observed: tuple[str, ...]) -> bo
     return True
 
 
-def _variant_patterns(person: _Person) -> list[str]:
+def _variant_patterns(person: _Person, single_words: bool = True) -> list[str]:
+    """Regex variants of a person's name.
+
+    single_words=False keeps only multi-word forms with dotted initials
+    ("Quentin R. Abernathy", "Q. Abernathy", "Q. R. Abernathy"): no bare
+    surname, no bare first name and no dotless OCR initials, so a name
+    learned in another file can never match an ordinary word ("read").
+    """
     last = _flex(person.last)
-    # Initials with or without dots ("M. T.", "L.-E.", OCR "CA", "PS."), same line only.
-    initials = r"(?:[A-Z]\.?[ \t]?-?){1,3}"
+    if single_words:
+        # Initials with or without dots ("M. T.", "L.-E.", OCR "CA", "PS."), same line only.
+        initials = r"(?:[A-Z]\.?[ \t]?-?){1,3}"
+    else:
+        initials = r"(?:[A-Z]\.[ \t]?-?){1,3}"
     patterns = [rf"{initials}[ \t]*{last}"]
     if person.first:
         first = _flex(person.first)
         middle = r"(?:[ \t]+(?:[A-Z]\.|[A-Z][a-z]+))?"
         patterns.append(rf"{first}{middle}\s+{last}")
-        if len(person.first) >= 5 and person.first.lower() not in COMMON_WORDS:
+        if single_words and len(person.first) >= 5 and person.first.lower() not in COMMON_WORDS:
             patterns.append(rf"{first}(?=['’]s\b|\b)")
     elif person.initial:
         # Surname known from "p.raghunathan@...": absorb a first name with that initial.
         patterns.append(rf"{person.initial}[a-z]+(?:-[A-Z][a-z]+)?(?:[ \t]+[A-Z]\.)?[ \t]+{last}")
-    if (len(person.last) >= 5 or "-" in person.last) and person.last.lower() not in COMMON_WORDS:
+    if single_words and (len(person.last) >= 5 or "-" in person.last) and person.last.lower() not in COMMON_WORDS:
         patterns.append(last)
     return patterns
 
@@ -309,10 +319,26 @@ def merge_registries(registries: Iterable[NameRegistry]) -> NameRegistry:
     ])
 
 
-def sweep_names(blocks: Sequence[ContentBlock], registry: NameRegistry) -> list[PIIEntity]:
-    """Emit PERSON entities (detector="name_sweep") for every registered name occurrence."""
+def sweep_names(
+    blocks: Sequence[ContentBlock], registry: NameRegistry, full_names_only: bool = False,
+) -> list[PIIEntity]:
+    """Emit PERSON entities (detector="name_sweep") for every registered name occurrence.
+
+    full_names_only=True (used for names learned from other files in a batch)
+    matches only multi-word forms with dotted initials, never a bare surname
+    or first name.
+    """
+    if full_names_only:
+        alternatives = sorted({alt for person in registry.people for alt in _variant_patterns(person, False)},
+                              key=len, reverse=True)
+        if not alternatives:
+            return []
+        pattern = re.compile(r"(?<![\w-])(?:" + "|".join(alternatives) + r")(?![\w-])")
+        finder = lambda text: [m.span() for m in pattern.finditer(text)]  # noqa: E731
+    else:
+        finder = registry.find
     entities = []
     for block in blocks:
-        for start, end in registry.find(block.text):
+        for start, end in finder(block.text):
             entities.append(make_entity(block, "PERSON", start, end, 0.85, "name_sweep"))
     return entities
