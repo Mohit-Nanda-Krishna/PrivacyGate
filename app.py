@@ -15,6 +15,8 @@ import pandas as pd
 import streamlit as st
 
 from privacygate.audit import audit_report_to_json
+from privacygate.detection import DetectionError
+from privacygate.extraction import ExtractionError
 from privacygate.models import PIIEntity
 from privacygate.pipeline import run_pipeline
 
@@ -217,7 +219,9 @@ if selected_name is not None:
                 result.document.filename = result.sanitized_document.filename = selected_name
                 st.session_state["pipeline_result"] = result
             except Exception as exc:
-                st.error(f"Processing failed closed: {type(exc).__name__}: {exc}")
+                # Project errors carry vetted messages; anything else may quote document text.
+                detail = f": {exc}" if isinstance(exc, (ExtractionError, DetectionError)) else ""
+                st.error(f"Processing failed closed: {type(exc).__name__}{detail}")
                 st.session_state["pipeline_result"] = None
             finally:
                 if temp_path is not None:

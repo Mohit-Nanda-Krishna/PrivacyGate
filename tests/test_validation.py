@@ -58,4 +58,6 @@ def test_validate_privacy_fails_closed_on_error(monkeypatch) -> None:
     result = validate_privacy(doc)
     assert result.status == "BLOCKED"
     assert "Privacy gate failed closed" in result.reason
-    assert "Presidio/NLP engine failure" in result.reason
+    # Only the exception type is reported; messages can quote document text.
+    assert result.reason.endswith("RuntimeError")
+    assert "Presidio/NLP engine failure" not in result.reason
