@@ -120,7 +120,10 @@ def test_docx_preserves_body_and_table_order():
             for block in cells] == [(1, 1), (1, 2), (2, 1), (2, 2)]
     assert all(block.metadata["table_number"] == 1 for block in cells)
     assert all(block.paragraph_number is None for block in cells)
-    assert document.metadata == {"paragraph_count": 3, "table_count": 1}
+    assert document.metadata == {
+        "paragraph_count": 3, "table_count": 1,
+        "embedded_images": [], "embedded_images_failed": [], "extraction_warnings": [],
+    }
     assert all(block.extraction_method == "docx_native" for block in document.blocks)
     assert all(block.page_number is block.slide_number is None for block in document.blocks)
 
@@ -147,7 +150,9 @@ def test_pptx_preserves_slides_shapes_and_table_cells():
     ]
     assert [block.slide_number for block in document.blocks] == [1, 1, 2, 2, 2, 2, 2]
     assert [block.metadata["shape_index"] for block in document.blocks] == [1, 2, 1, 2, 2, 2, 2]
-    assert document.metadata == {"slide_count": 2}
+    assert document.metadata == {
+        "slide_count": 2, "embedded_images": [], "embedded_images_failed": [], "extraction_warnings": [],
+    }
     assert [(block.metadata["row_number"], block.metadata["column_number"])
             for block in document.blocks[3:]] == [(1, 1), (1, 2), (2, 1), (2, 2)]
     assert all(block.extraction_method == "pptx_native" for block in document.blocks)

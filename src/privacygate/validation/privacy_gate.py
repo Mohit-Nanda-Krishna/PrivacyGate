@@ -44,6 +44,16 @@ def validate_privacy(
             ),
             residual_entities=[],
         )
+    failed_images = sanitized_doc.metadata.get("embedded_images_failed") or []
+    if failed_images:
+        return ValidationResult(
+            status="BLOCKED",
+            reason=(
+                f"Extraction incomplete: OCR failed for {len(failed_images)} embedded image(s) "
+                f"({', '.join(failed_images)}). Their content was not inspected."
+            ),
+            residual_entities=[],
+        )
 
     try:
         # Scan sanitized document using full hybrid detection
