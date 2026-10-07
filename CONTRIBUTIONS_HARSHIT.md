@@ -89,6 +89,21 @@ This document tracks all contributions, architectural enhancements, implementati
   - `uv run pytest tests/test_evaluation.py`: 4 passed in 0.11s.
   - `uv run pytest`: 125 passed, 3 skipped, 0 failures across 128 test items.
 
+---
+
+## Commit: Phase 6 — Documentation, Full System Polish & MVP Verification
+
+- **Author**: Harshit (`harshit-git404`)
+- **Scope**: Final System Documentation, Complete Pipeline Diagrams, Quickstart Guide, and Verification
+- **Files Added / Changed**:
+  - `README.md`: Overhauled to include end-to-end architecture ASCII diagram, supported formats, quickstart with `uv`, Streamlit execution guide, programmatic Python API usage, and evaluation metrics.
+  - `PROGRESS.md`: Updated to declare project MVP completion, detailing verification results across all phases (Phase 0 through Phase 6).
+  - `CONTRIBUTIONS_HARSHIT.md`: Finalized comprehensive chronological changelog of all commits and enhancements executed by Harshit.
+- **Verification & Test Results**:
+  - `uv run pytest`: 125 passed, 3 skipped, 0 failures across 128 test items.
+  - `uv run python scripts/check_env.py`: Environment verified healthy with all dependencies operational.
+
+
 
 
 

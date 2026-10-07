@@ -1,97 +1,149 @@
-# PrivacyGate
+# PrivacyGate — Pre-LLM Privacy Firewall for Business Documents
 
-PrivacyGate is a pre-LLM privacy firewall that detects, classifies and redacts Personally Identifiable Information from business documents before the content reaches an AI model.
+PrivacyGate is a document-aware, fail-closed privacy gateway positioned before enterprise AI systems. It inspects, classifies, and sanitizes sensitive Personally Identifiable Information (PII) embedded inside multi-format business documents (PDF, DOCX, PPTX, and scanned artifacts) before content is allowed to reach downstream Large Language Models (LLMs).
 
-## Pipeline
+---
 
-Document
-→ Extract
-→ Detect PII
-→ Classify
-→ Redact
-→ Verify
-→ Allow / Block
+## Architecture & Processing Pipeline
 
-## Supported Formats
-
-- PDF
-- Scanned PDF
-- DOCX
-- PPTX
-
-## Stack
-
-Python · Streamlit · PyMuPDF · Tesseract · Microsoft Presidio · spaCy · pytest
-
-## Documentation
-
-- `PRD.md` — complete product requirements and architecture
-- `AGENTS.md` — development instructions for coding agents
-- `PROGRESS.md` — current implementation status
-
-## Status
-
-Phase 1B PDF extraction supports native text and local OCR fallback, including
-mixed PDFs. Native DOCX/PPTX extraction is also available. The Streamlit app
-remains a foundation screen; PII detection, redaction, and privacy validation
-are not implemented yet.
-
-Extraction returns the shared `Document` / `ContentBlock` models:
-
-```python
-from privacygate.extraction import extract_document
-
-document = extract_document("sample.pdf")  # Also accepts DOCX/PPTX paths.
+```
+Evidence Document (PDF / DOCX / PPTX)
+  │
+  ▼
+[Stage 1: File Ingestion & Format Validation]
+  │
+  ▼
+[Stage 2: Content Extraction & Structure Preservation]
+  ├── PDF: PyMuPDF (native vector blocks & coordinates)
+  ├── Scanned PDF: Local Tesseract OCR (300 DPI, English)
+  ├── Word: python-docx (paragraphs, tables, ordinals)
+  └── PowerPoint: python-pptx (slide shape trees, text boxes, tables)
+  │
+  ▼ Canonical Document Model (`Document` / `ContentBlock`)
+  │
+[Stage 3: Hybrid PII Detection Engine]
+  ├── Layer 1: Structured Regex Detector (Email, Phone, SSN, IP, IBAN, Luhn-verified Credit Cards)
+  ├── Layer 2: Enterprise Custom Recognizers (Employee IDs, Client IDs, Portfolio IDs, Customer Refs)
+  └── Layer 3: Microsoft Presidio & spaCy NLP (Names, Locations, Dates, Organizations)
+  │
+  ▼ Deterministic Entity Merger & Conflict Resolution
+  │
+[Stage 4: Sensitivity Risk Classification]
+  ├── CRITICAL: Government IDs, Bank Accounts, Payment Cards, Financial Data
+  ├── HIGH: Employee/Client/Customer IDs, Email, Phone, Addresses
+  └── MEDIUM: Personal Names, General Locations, IP addresses, Timestamps
+  │
+  ▼
+[Stage 5: Context-Preserving Semantic Redaction]
+  └── Replaces PII with typed placeholders (`[PERSON]`, `[EMAIL]`, `[EMPLOYEE_ID]`, etc.)
+  │
+  ▼ Sanitized Document
+  │
+[Stage 6: Fail-Closed Secondary Privacy Gate]
+  ├── Rescans sanitized document with full hybrid detector
+  ├── Filters applied semantic placeholders
+  └── Fails closed on any residual PII or system error:
+        ├── APPROVED: 0 residual PII -> Forward to LLM
+        └── BLOCKED: Residual PII or error -> Access Denied
+  │
+  ▼
+[Stage 7: Zero-PII Audit Report & Streamlit Dashboard]
+  └── Generates metrics, category/risk breakdowns, and JSON audit logs (never persists raw PII).
 ```
 
-Extracted text is unvalidated and may contain PII. Extraction is not approval
-for downstream AI use. Each PDF page with fewer than 20 alphanumeric native-text
-characters uses OCR; other pages retain native extraction. This deterministic
-heuristic can misclassify short pages or miss image text on native-rich pages.
-OCR failure or fewer than 20 alphanumeric OCR characters rejects the entire
-document, including effectively blank pages. Missing Tesseract raises
-`OCRRequiredError`, a subclass of `ExtractionError`.
+---
 
-OCR runs locally with English language data, automatic page segmentation, and
-a 30-second engine timeout per page. Pages render at
-[300 DPI](https://tesseract-ocr.github.io/tessdoc/ImproveQuality.html).
-OCR blocks use `extraction_method="ocr"` with page/order identifiers and pixel
-bounding boxes in the rendered page. Images are held in memory by PrivacyGate;
-pytesseract uses local temporary files and cleans them up after each call.
+## Core Technologies
 
-## Development setup
+- **Language & Runtime**: Python 3.11.x (managed via `uv`)
+- **Web UI & Dashboard**: Streamlit
+- **PDF Extraction**: PyMuPDF (`fitz`)
+- **Office Document Processing**: `python-docx`, `python-pptx`
+- **OCR Engine**: Tesseract OCR via `pytesseract`
+- **PII Detection**: Microsoft Presidio Analyzer, spaCy (`en_core_web_lg` 3.8.0), Python regular expressions
+- **Quality & Testing**: `pytest` (125 automated unit/integration tests)
 
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then run
-these commands from the repository root:
+---
 
-```sh
-uv sync
+## Quickstart & Installation
+
+### 1. Requirements
+
+Ensure Python 3.11 is installed, along with the fast package manager `uv`:
+
+```bash
+# Install uv if not already installed
+pip install uv
+```
+
+### 2. Synchronize Dependencies
+
+```bash
+uv sync --locked
+```
+
+### 3. Verify Environment
+
+```bash
 uv run python scripts/check_env.py
+```
+
+### 4. Launch the Interactive Dashboard
+
+```bash
 uv run streamlit run app.py
+```
+
+The Streamlit dashboard will open in your browser at `http://localhost:8501`.
+
+### 5. Run Test Suite
+
+```bash
 uv run pytest
 ```
 
-Stop Streamlit with Ctrl+C before running tests, or use a second terminal.
-Python is restricted to 3.11.x. uv creates `.venv` and can download Python 3.11
-if needed. `pyproject.toml` and the uv-generated `uv.lock` are the dependency
-source of truth; use `uv sync --locked` to require the existing lockfile.
+---
 
-Alternatively, run `./scripts/setup.ps1` in PowerShell or
-`bash scripts/setup.sh` on macOS/Linux or Git Bash. Both sync the locked
-environment and run the diagnostic.
+## Project Documentation
 
-Tesseract is a separate system executable: installing `pytesseract` does not
-install it. Install Tesseract separately with English (`eng`) language data,
-add its executable directory to `PATH`, then open a fresh terminal and run
-`tesseract --version` and `uv run python scripts/check_env.py`.
-Missing Tesseract warns in diagnostics and prevents required OCR, while native
-extraction and the app still work. Setup does not install system Tesseract or
-spaCy language models; spaCy configuration belongs to the detection phase.
+- `PRD.md` — Product Requirements Document and specifications.
+- `PROGRESS.md` — Detailed implementation progress, phase milestones, and verification logs.
+- `CONTRIBUTIONS_HARSHIT.md` — Comprehensive commit-by-commit changelog of all work performed by Harshit.
+- `AGENTS.md` — Architectural rules and security constraints.
 
-The test suite always runs mocked OCR routing/failure tests. Three real-engine
-integration tests run when Tesseract is on `PATH`; otherwise pytest explicitly
-reports them as skipped. Synthetic scanned/mixed fixtures are generated in
-pytest temporary directories from `tests/fixtures/generate_fixtures.py`.
+---
 
-No API keys or `.env` file are required. `.env.example` documents the current
-configuration; `.env` and `.venv` are ignored by Git.
+## Python API Usage
+
+```python
+from privacygate.pipeline import run_pipeline, process_document
+
+# 1. Full pipeline execution with all intermediate artifacts
+result = run_pipeline("docs/Cadence_Group_Risk_Management_Policy__v6.0.pdf")
+
+print("Document ID:", result.document.document_id)
+print("Extracted Blocks:", len(result.document.blocks))
+print("Detected Entities:", len(result.entities))
+print("Privacy Gate Status:", result.validation.status)  # "APPROVED" or "BLOCKED"
+print("Residual Entities:", len(result.validation.residual_entities))
+
+# 2. Get sanitized text safe for LLMs
+sanitized_text = "\n\n".join(b.text for b in result.sanitized_document.blocks)
+
+# 3. Export audit report as JSON (safe, zero raw PII persisted)
+from privacygate.audit import audit_report_to_json
+audit_json = audit_report_to_json(result.audit_report)
+print(audit_json)
+```
+
+---
+
+## Evaluation & Case Study Targets
+
+PrivacyGate includes an automated evaluation benchmark (`src/privacygate/evaluation.py`):
+
+- **Recall**: $TP / (TP + FN)$ (Security-critical; prioritizes zero missed PII)
+- **Precision**: $TP / (TP + FP)$ (Reduces unnecessary redactions)
+- **F1 Score**: Harmonic mean of Precision and Recall
+- **Residual PII Rate**: Residual detections / Initial detections (Target: 0%)
+- **Structure Retention**: Block, coordinate, and context continuity ($\ge 80\%$)
