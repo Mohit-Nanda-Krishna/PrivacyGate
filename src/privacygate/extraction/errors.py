@@ -1,4 +1,4 @@
-"""Small public error contract for native extraction."""
+"""Small public error contract for document extraction."""
 
 
 class ExtractionError(Exception):
@@ -6,4 +6,4 @@ class ExtractionError(Exception):
 
 
 class OCRRequiredError(ExtractionError):
-    """Insufficient native PDF text; OCR may be required, but was not attempted."""
+    """A PDF page requires OCR but the local Tesseract executable is unavailable."""

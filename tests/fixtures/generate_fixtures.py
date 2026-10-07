@@ -1,4 +1,4 @@
-"""Regenerate the three small, synthetic Phase 1A fixtures with existing dependencies.
+"""Regenerate small synthetic native and OCR fixtures with existing dependencies.
 
 Run from the repository root: uv run python tests/fixtures/generate_fixtures.py
 These files contain only invented project labels, never real personal data.
@@ -12,6 +12,32 @@ from pptx import Presentation
 from pptx.util import Inches
 
 FIXTURES = Path(__file__).parent
+
+
+def generate_ocr_fixtures(directory: Path) -> None:
+    """Create deterministic scanned/mixed PDFs; tests generate these in temp dirs.
+
+    Rasterize synthetic text with PyMuPDF's bundled font, then embed only the
+    image, without a hidden text layer. No system font or OCR engine is needed.
+    """
+    with pymupdf.open() as text_document:
+        page = text_document.new_page(width=432, height=216)
+        page.insert_text((24, 60), "Synthetic scanned report.", fontsize=20)
+        page.insert_text((24, 110), "Sample widgets are ready.", fontsize=18)
+        png = page.get_pixmap(dpi=150, colorspace=pymupdf.csGRAY).tobytes("png")
+    with pymupdf.open() as scanned:
+        page = scanned.new_page(width=432, height=216)
+        page.insert_image(page.rect, stream=png)
+        scanned.save(directory / "scanned.pdf", deflate=True, no_new_id=True)
+        with pymupdf.open() as mixed:
+            mixed.new_page(width=432, height=216).insert_text(
+                (24, 60), "Synthetic native first page.", fontsize=18,
+            )
+            mixed.insert_pdf(scanned)
+            mixed.new_page(width=432, height=216).insert_text(
+                (24, 60), "Synthetic native final page.", fontsize=18,
+            )
+            mixed.save(directory / "mixed.pdf", deflate=True, no_new_id=True)
 
 
 def main() -> None:
@@ -51,6 +77,7 @@ def main() -> None:
         for cell, text in zip(row.cells, values):
             cell.text = text
     pptx.save(FIXTURES / "native.pptx")
+    generate_ocr_fixtures(FIXTURES)
 
 
 if __name__ == "__main__":

@@ -144,3 +144,85 @@ Keep detection and redaction work in their later phases.
 
 **Phase 1B scanned-PDF detection and OCR.** Preserve these native extractors and
 their canonical source locations while adding explicit OCR handling and tests.
+
+## Phase 1B - Scanned-PDF detection and OCR fallback (2026-10-07)
+
+### Completed
+
+- Preserved `extract_document(path) -> Document`, canonical models, and the
+  existing native PDF block extraction. Native DOCX/PPTX code is unchanged.
+- Applied the native-text heuristic per page: at least 20 alphanumeric native
+  characters retains native blocks; fewer characters requires whole-page OCR.
+  This is deterministic OCR-needed detection, not perfect scan classification.
+- Implemented local OCR in `extraction/ocr.py`: PyMuPDF renders RGB at 300 DPI,
+  Pillow passes the image to pytesseract, and Tesseract runs with English (`eng`),
+  automatic page segmentation (`--psm 3`), and a 30-second engine timeout.
+- OCR words are grouped into canonical line ContentBlocks, preserving page,
+  block order, Tesseract block/paragraph/line IDs, and rendered pixel bounding
+  boxes. `extraction_method` is `ocr`; native blocks remain `pdf_native`.
+- Mixed PDFs preserve page order. OCR replaces sparse native output for its
+  page, avoiding duplicate text. Document metadata adds `ocr_pages`; existing
+  native character counts and textless-page metadata keep their native meaning.
+- PATH-based executable discovery raises a clear OCRRequiredError when
+  Tesseract is unavailable. Rendering, engine, malformed-output, or unusable-text
+  failures raise ExtractionError and reject the entire document, with no partial
+  success. OCR output below 20 alphanumeric characters is considered unusable.
+- Explicitly close rendered Pillow images on success/failure. pytesseract's
+  local temporary files are cleaned by its wrapper; no document images/text
+  are sent to external services or intentionally persisted by PrivacyGate.
+- Extended the fixture generator with deterministic image-only scanned and
+  native/scanned/native PDFs. Tests generate them in temporary directories,
+  with synthetic labels and no hidden native text layer in scanned pages.
+- Added 23 OCR tests and updated the earlier sparse/blank-page expectations for
+  required OCR. In particular, a textless page can no longer silently pass as
+  partially extracted. Existing native ordering, models, and Office regressions
+  remain covered. README now documents OCR setup, defaults, and limitations.
+- No dependency, model, app, pipeline, CI, or environment-diagnostic changes
+  were needed. No system software was installed and no Phase 2 work was added.
+
+### Verification
+
+- First full test run: **91 passed, 3 failed in 8.60s**. Failure tests showed
+  Pillow's Image context manager did not release in-memory pixel data. Verified
+  this in the installed library and fixed cleanup using `image.close()` in a
+  `finally` block; the assertions were retained.
+- Final `uv run --locked pytest`: **94 passed in 7.32s**, exit code 0, no skips.
+  All Phase 0/1A regression cases (with the intentional OCR expectations above)
+  and 23 new OCR cases passed, including three real-engine integration cases.
+- Real Tesseract recognized both expected synthetic lines from scanned and
+  mixed PDFs. A blank page failed closed. Temporary-file cleanup passed for
+  successful OCR, blank-output failure, and an injected engine failure.
+- Generated scanned/mixed PDF bytes matched across two independent generations.
+- `uv run --locked python scripts/check_env.py`: exit code 0. Python **3.11.9**,
+  all ten core Python packages available, and local Tesseract
+  **v5.5.3.20260724** found on PATH. `tesseract --list-langs` confirmed `eng` and
+  `osd`. Python package versions remain those recorded in Phase 0.
+- Reviewed the Git diff and new test file; `git diff --check` passed. Verified
+  no environments, caches, bytecode, temporary OCR images, or generated junk
+  are tracked. No formatter/static-analysis tool is configured. Git emitted
+  normal Windows LF-to-CRLF checkout notices; no unresolved test failures.
+- Remote CI and Linux/macOS execution were not run. On machines without
+  Tesseract, three real-engine tests explicitly skip; mocked OCR/error tests
+  still run. A present but broken engine or missing English data fails tests.
+
+### Known limitations
+
+- The page-level character threshold may OCR legitimate short native pages and
+  miss image text on pages with substantial native text. It is not a guarantee
+  of complete extraction. Even truly blank pages fail if OCR yields too little
+  text; blank-page exceptions have not been introduced.
+- OCR is English-only and depends on scan quality and Tesseract segmentation.
+  There is no deskewing, rotation correction, advanced preprocessing, or layout
+  reconstruction. Sufficient character count does not prove semantic accuracy;
+  recognition mistakes and omissions remain possible.
+- OCR bounding boxes use rendered-image pixels (including page rotation), while
+  native PDF bounding boxes use PDF coordinates. They must not be interchanged.
+- pytesseract uses transient local files; normal success/error cleanup is
+  tested, but abrupt process/OS termination can leave system temporary files.
+- Extraction does not assess PII or grant privacy approval. Earlier native
+  Office/PDF limitations remain applicable outside the new OCR fallback.
+
+### Next task
+
+**Phase 2 hybrid PII detection.** Add Presidio/spaCy, deterministic recognizers,
+and entity merging/source mapping against the existing canonical blocks.

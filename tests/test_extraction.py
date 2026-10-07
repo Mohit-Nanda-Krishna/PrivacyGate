@@ -1,4 +1,4 @@
-"""Native-only extraction contract, ordering, provenance, and failure behavior."""
+"""Native extraction regressions and required-OCR failure behavior."""
 
 from dataclasses import asdict
 from io import BytesIO
@@ -14,7 +14,7 @@ from pptx import Presentation
 from pptx.util import Inches
 
 from privacygate.extraction import ExtractionError, OCRRequiredError, extract_document
-from privacygate.extraction import docx, pdf, pptx
+from privacygate.extraction import docx, ocr, pdf, pptx
 from privacygate.models import ContentBlock, Document
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -39,12 +39,13 @@ def test_pdf_text_order_and_page_sources():
 
 
 @pytest.mark.parametrize("text", ["", "   ", "... --- !!!", "Short title", "a" * 19])
-def test_pdf_with_insufficient_native_text_requires_attention(tmp_path, text):
+def test_pdf_with_insufficient_native_text_requires_attention(tmp_path, text, monkeypatch):
     path = tmp_path / "sparse.pdf"
     with pymupdf.open() as source:
         source.new_page().insert_text((72, 72), text)
         source.save(path)
-    with pytest.raises(OCRRequiredError, match="OCR may be required; OCR was not attempted"):
+    monkeypatch.setattr(ocr.shutil, "which", lambda command: None)
+    with pytest.raises(OCRRequiredError, match="requires OCR, but Tesseract is unavailable"):
         pdf.extract_pdf(path)
 
 
@@ -56,11 +57,12 @@ def test_pdf_minimum_text_boundary(tmp_path):
     assert pdf.extract_pdf(path).metadata["native_text_character_count"] == 20
 
 
-def test_pdf_image_only_does_not_call_ocr(tmp_path, monkeypatch):
+def test_pdf_image_only_requires_local_tesseract(tmp_path, monkeypatch):
     def forbidden_ocr(*args, **kwargs):
-        pytest.fail("Native extraction must not invoke OCR")
+        pytest.fail("Use pytesseract, not PyMuPDF's built-in OCR path")
 
     monkeypatch.setattr(pymupdf.Page, "get_textpage_ocr", forbidden_ocr)
+    monkeypatch.setattr(ocr.shutil, "which", lambda command: None)
     image = BytesIO()
     Image.new("RGB", (20, 20), "white").save(image, format="PNG")
     path = tmp_path / "image-only.pdf"
@@ -72,15 +74,14 @@ def test_pdf_image_only_does_not_call_ocr(tmp_path, monkeypatch):
         extract_document(path)
 
 
-def test_pdf_reports_textless_pages_without_claiming_complete_extraction(tmp_path):
+def test_pdf_textless_page_cannot_pass_without_required_ocr(tmp_path, monkeypatch):
     path = tmp_path / "partly-empty.pdf"
     with pymupdf.open(FIXTURES / "native.pdf") as source:
         source.new_page()
         source.save(path)
-    document = pdf.extract_pdf(path)
-    assert document.metadata["pages_without_native_text"] == [3]
-    assert document.metadata["page_count"] == 3
-    assert len(document.blocks) == 4
+    monkeypatch.setattr(ocr.shutil, "which", lambda command: None)
+    with pytest.raises(OCRRequiredError, match="Page 3 requires OCR"):
+        pdf.extract_pdf(path)
 
 
 def test_password_protected_pdf_is_rejected(tmp_path):

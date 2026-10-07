@@ -1,4 +1,4 @@
-"""Native extraction only; extracted content has not passed privacy validation."""
+"""Local extraction; extracted content has not passed privacy validation."""
 
 from pathlib import Path
 
@@ -14,8 +14,9 @@ __all__ = ["extract_document", "ExtractionError", "OCRRequiredError"]
 def extract_document(path: str | Path) -> Document:
     """Dispatch a local PDF, DOCX, or PPTX path by case-insensitive extension.
 
-    Parsers also validate the underlying format. No OCR, privacy approval, or
-    network access is performed. Errors never return a partially extracted file.
+    Parsers also validate the underlying format. PDF pages with insufficient
+    native text use local OCR. No privacy approval or network access is performed.
+    Errors never return a partially extracted file.
     """
     path = Path(path)
     extractors = {".pdf": extract_pdf, ".docx": extract_docx, ".pptx": extract_pptx}

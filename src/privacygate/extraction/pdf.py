@@ -1,24 +1,26 @@
-"""Native PDF text blocks in page order and PyMuPDF's coordinate-sorted order."""
+"""Native PDF extraction with page-level local OCR fallback."""
 
 from pathlib import Path
 from uuid import uuid4
 
 import pymupdf
 
-from privacygate.extraction.errors import ExtractionError, OCRRequiredError
+from privacygate.extraction.errors import ExtractionError
+from privacygate.extraction.ocr import MIN_TEXT_CHARACTERS, extract_page_ocr
 from privacygate.models import ContentBlock, Document
 
-# A conservative text-availability check, not scanned-page detection or proof
-# of extraction completeness. Even a valid very short PDF may need review.
-MIN_NATIVE_TEXT_CHARACTERS = 20
+# Deterministic per-page heuristic, not proof of scanned-page classification
+# or complete extraction. Native pages below this threshold require OCR.
+MIN_NATIVE_TEXT_CHARACTERS = MIN_TEXT_CHARACTERS
 
 
 def extract_pdf(path: str | Path) -> Document:
     """Extract native text with 1-based pages/order and original block numbers.
 
-    Raise OCRRequiredError below 20 alphanumeric characters across the file.
-    Report pages without text in metadata; never infer that they are scanned.
-    Images, annotations, and forms are not extracted. No OCR is attempted.
+    Pages with fewer than 20 native alphanumeric characters use local OCR.
+    A required OCR failure rejects the entire document, including blank pages.
+    Native and OCR text are never combined for the same page. Native-rich pages
+    may still contain image text; this heuristic does not guarantee coverage.
     """
     path = Path(path)
     try:
@@ -30,6 +32,8 @@ def extract_pdf(path: str | Path) -> Document:
 
             document = Document(str(uuid4()), path.name, "pdf")
             pages_without_text = []
+            ocr_pages = []
+            character_count = 0
             for page_number, page in enumerate(source, start=1):
                 page_blocks = []
                 for block in page.get_text("blocks", sort=True):
@@ -49,20 +53,22 @@ def extract_pdf(path: str | Path) -> Document:
                     ))
                 if not page_blocks:
                     pages_without_text.append(page_number)
+                page_character_count = sum(
+                    character.isalnum() for block in page_blocks for character in block.text
+                )
+                character_count += page_character_count
+                if page_character_count < MIN_NATIVE_TEXT_CHARACTERS:
+                    page_blocks = extract_page_ocr(page)
+                    ocr_pages.append(page_number)
                 document.blocks.extend(page_blocks)
 
-            character_count = sum(
-                character.isalnum() for block in document.blocks for character in block.text
-            )
-            if character_count < MIN_NATIVE_TEXT_CHARACTERS:
-                raise OCRRequiredError(
-                    "PDF has insufficient native text (fewer than 20 alphanumeric characters). "
-                    "OCR may be required; OCR was not attempted."
-                )
+            if not document.blocks:
+                raise ExtractionError("PDF contains no extractable pages or text.")
             document.metadata = {
                 "page_count": source.page_count,
                 "native_text_character_count": character_count,
                 "pages_without_native_text": pages_without_text,
+                "ocr_pages": ocr_pages,
             }
             return document
     except ExtractionError:
