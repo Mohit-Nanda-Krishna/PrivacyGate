@@ -52,7 +52,7 @@ the a an this that these those and or of for to in on at by with from see figure
 # first name or initial attached, never alone.
 COMMON_WORDS: frozenset[str] = frozenset("""
 read white brown green black young king park may will mark rose case wood hill field long short bell lane page
-hall ward cook baker rich grant hope joy faith grace frank bush lee kim chen ott smith
+hall ward cook baker rich grant hope joy faith grace frank bush
 """.split())
 
 _TOKEN = re.compile(r"[A-Za-z][A-Za-z'’.-]*")
@@ -75,7 +75,7 @@ ROLE_LABEL = re.compile(
     r"prepared by|led by|chair(?:ed by)?|employees?)\b",
     re.IGNORECASE,
 )
-# Within a role context, "Daniela Figueroa", "KC Burney" or "Priya S. Nair" are names.
+# Within a role context, "Quilla Marsh", "XT Fenwick" or "Ismay R. Corvell" are names.
 _ROLE_NAME = re.compile(
     r"(?<![\w.-])(?:[A-Z]{2}|[A-Z][a-z]+(?:-[A-Z][a-z]+)?)(?:[ \t]+[A-Z]\.)?[ \t]+[A-Z][a-z]+(?:-[A-Z][a-z]+)?(?![\w-])"
 )
