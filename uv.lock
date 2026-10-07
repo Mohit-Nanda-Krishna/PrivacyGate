@@ -262,6 +262,14 @@ wheels = [
 ]
 
 [[package]]
+name = "en-core-web-sm"
+version = "3.8.0"
+source = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" }
+wheels = [
+    { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl", hash = "sha256:1932429db727d4bff3deed6b34cfc05df17794f4a52eeb26cf8928f7c1a0fb85" },
+]
+
+[[package]]
 name = "filelock"
 version = "4.0.12"
 source = { registry = "https://pypi.org/simple" }
@@ -639,6 +647,7 @@ name = "privacygate"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "en-core-web-sm" },
     { name = "pandas" },
     { name = "pillow" },
     { name = "presidio-analyzer" },
@@ -658,6 +667,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "en-core-web-sm", url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" },
     { name = "pandas", specifier = ">=3.0.6" },
     { name = "pillow", specifier = ">=12.3.0" },
     { name = "presidio-analyzer", specifier = ">=2.2.364" },
@@ -666,7 +676,7 @@ requires-dist = [
     { name = "pytesseract", specifier = ">=0.3.13" },
     { name = "python-docx", specifier = ">=1.2.0" },
     { name = "python-pptx", specifier = ">=1.0.2" },
-    { name = "spacy", specifier = ">=3.8.16" },
+    { name = "spacy", specifier = ">=3.8.16,<3.9" },
     { name = "streamlit", specifier = ">=1.65.0" },
 ]
 

@@ -13,6 +13,7 @@ def diagnostic(monkeypatch):
     namespace = runpy.run_path(str(Path(__file__).parents[1] / "scripts/check_env.py"))
     main = namespace["main"]
     monkeypatch.setitem(main.__globals__, "importlib", Mock())
+    main.__globals__["importlib"].import_module.return_value.load.return_value.pipe_names = ["ner"]
     monkeypatch.setitem(main.__globals__, "version", Mock(return_value="test-version"))
     monkeypatch.setitem(main.__globals__, "sys", Mock(version_info=(3, 11, 9), executable="python"))
     monkeypatch.setitem(main.__globals__, "shutil", Mock(which=Mock(return_value=None)))
@@ -31,6 +32,12 @@ def test_missing_python_package_fails_diagnostic(diagnostic, capsys):
     diagnostic.__globals__["importlib"].import_module.side_effect = ImportError
     assert diagnostic() == 1
     assert "[ERROR] pytesseract: missing or cannot import" in capsys.readouterr().out
+
+
+def test_unloadable_spacy_model_fails_diagnostic(diagnostic, capsys):
+    diagnostic.__globals__["importlib"].import_module.return_value.load.side_effect = OSError
+    assert diagnostic() == 1
+    assert "[ERROR] en_core_web_sm: cannot load NLP model" in capsys.readouterr().out
 
 
 def test_wrong_python_version_fails_diagnostic(diagnostic, capsys):

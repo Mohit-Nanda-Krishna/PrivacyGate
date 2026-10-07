@@ -226,3 +226,118 @@ their canonical source locations while adding explicit OCR handling and tests.
 
 **Phase 2 hybrid PII detection.** Add Presidio/spaCy, deterministic recognizers,
 and entity merging/source mapping against the existing canonical blocks.
+
+## Phase 2 - Hybrid PII detection (2026-10-07)
+
+### Completed
+
+- Added `privacygate.detection.detect_pii(document) -> list[PIIEntity]`.
+  Detection runs independently on each canonical ContentBlock, using Presidio,
+  spaCy-backed NER within Presidio, project regex, and enterprise recognizers.
+  It is independent of file format and leaves all extraction/OCR code intact.
+- Explicit Presidio baseline: **PERSON, LOCATION, EMAIL_ADDRESS, PHONE_NUMBER,
+  IP_ADDRESS, CREDIT_CARD, US_SSN, IBAN_CODE**. spaCy maps PERSON to PERSON and
+  GPE/LOC to LOCATION; all other NLP labels are ignored. ORGANIZATION and generic
+  dates are not enabled. US_SSN uses formatted hyphenated spans only, avoiding
+  arbitrary nine-digit counts. Phone validation uses US/GB/IN regional defaults.
+- Project regex adds conventional/internal-domain email matching (score 0.95)
+  and explicitly labelled structured/E.164 phone numbers (score 0.85).
+  Presidio's minimum score is 0.4; its recognizers retain their validation/context
+  scoring. spaCy's default NER confidence is a fixed 0.85, not a calibrated probability.
+- Central enterprise rules add **EMPLOYEE_ID, CLIENT_ID, CUSTOMER_ID,
+  PORTFOLIO_ID** (score 0.95). Employee ID/No/Number, Client ID, Customer ID, and
+  Portfolio ID labels require a colon, equals sign, or hash before the value.
+  Supported prefixes are EMP, CLI/C, CUST, and PF/AX respectively, with 4-10
+  digits; labelled numeric-only values require 5-10 digits. Unlabelled tokens
+  are not matched by these custom rules. Spans select only the identifier.
+- Reused PIIEntity unchanged: offsets are `[start, end)` Python character
+  indices into the original block text. Results retain block IDs and whitelisted
+  page/slide/paragraph/table/shape/OCR structural positions. Bounding boxes remain
+  accessible from the original ContentBlock. No raw values are stored; risk is None.
+- Missing NLP, malformed detections, duplicate block IDs, conflicting source
+  locations, and detector failures raise DetectionError. No detector silently
+  drops out and no partial result is returned. Even empty documents require a
+  successfully initialized NLP engine; an empty result grants no privacy approval.
+- Explicitly preload the local spaCy model into Presidio, bypassing its runtime
+  downloader. Email validation uses tldextract's bundled public-suffix snapshot
+  with downloads and disk caching disabled. Presidio decision tracing is off;
+  its logger is restricted to WARNING to avoid debug context text in logs.
+  Only the NLP engine is cached, not document text or results.
+
+### Dependency and setup changes
+
+- Added **en_core_web_sm 3.8.0** (about 12 MB) using `uv add` with the official
+  versioned spaCy wheel URL. uv generated its SHA-256 lock entry; uv.lock was
+  not edited manually. Constrained spaCy via uv to `>=3.8.16,<3.9`, matching the
+  model's 3.8-series compatibility. Installed spaCy remains **3.8.16**.
+- No other package versions changed. Existing `uv sync --locked` setup and CI
+  install the model automatically; no manual model-download command or API key
+  is needed. Updated setup messages and README to reflect this.
+- The environment diagnostic now loads the installed model and checks NER;
+  model failure produces a nonzero exit. It still reports the pytesseract Python
+  package and external Tesseract executable separately.
+
+### Merge policy
+
+- Within each block, exact duplicates collapse with maximum confidence and a
+  sorted unique `|`-separated detector list. Inputs are not mutated.
+- Overlapping intervals form connected components. Each component uses the
+  union of its spans so overlapping tails are not discarded. The winning type
+  is selected by specificity: labelled enterprise IDs, then structured PII,
+  then PERSON/LOCATION. Ties use descending confidence, descending original
+  span length, earliest start, then lexical entity type and detector name.
+- The winner's confidence is retained; combined detector provenance means each
+  source contributed a finding, not that all agreed on the winning type.
+  Adjacent spans and different blocks never merge. Public output follows
+  document block order and increasing offsets within each block.
+
+### Verification
+
+- `uv run --locked pytest`: **171 passed in 37.55s**, exit code 0, no failures
+  or skips. This includes all 94 earlier tests plus 60 detection tests,
+  16 merger tests, and one new model-diagnostic failure test.
+- Positive cases cover all 12 supported types. Negative cases cover ordinary
+  numbers, years, version strings, organization names, unlabelled codes, malformed
+  regex values, and invalid enterprise contexts. Unicode offsets and page/slide/
+  paragraph/OCR source associations passed; native PDF/DOCX/PPTX extraction-to-
+  detection integration passed. Existing real-Tesseract tests also passed.
+- Duplicate email/phone provenance, conflicting/partial/transitive overlaps,
+  custom-ID precedence, input permutations, and malformed entities passed.
+  Network/download prohibition and raw-PII logging checks passed. Missing NLP
+  and failure of each detection source raised explicit errors as expected.
+- `uv run --locked python scripts/check_env.py`: exit code 0; Python **3.11.9**,
+  all ten existing core packages importable, **en_core_web_sm 3.8.0** loaded with
+  NER, and Tesseract **v5.5.3.20260724** available on PATH.
+- After tightening the compatible spaCy range (without changing installed
+  versions), `scripts/setup.ps1` completed locked sync and diagnostics successfully.
+  Bash setup syntax check passed; Bash setup was not rerun end-to-end this phase.
+- Inspected the diff and new files; `git diff --check` passed. Verified no
+  environments, caches, model caches, temporary documents/images, or sensitive
+  artifacts are tracked. No formatter/static checker is configured.
+- Only normal Windows LF-to-CRLF Git notices occurred. No unresolved failures.
+  GitHub Actions and Linux/macOS execution were not run remotely/locally.
+
+### Known limitations
+
+- The lightweight English NER model can miss names/locations or misclassify
+  business terms. Detection confidence is heuristic, not a safety guarantee.
+- Per-block processing cannot recognize values or labels split across blocks;
+  OCR mistakes, obfuscation, unusual international formats, and unconfigured
+  enterprise identifiers can produce false negatives. Custom labels do not
+  cross line breaks. The phone fallback relies on formatting and labels rather
+  than assignment verification and can produce false positives.
+- Conservative overlap unions may absorb harmless text or combine nearby
+  findings linked by a broad NLP span. The selected type can obscure a losing
+  classification; provenance retains sources, not every candidate type/score.
+- spaCy/Presidio integration uses the loaded engine's `nlp` mapping; dependency
+  upgrades must retain the offline and initialization tests. The offline suffix
+  snapshot can age; project email regex provides additional coverage.
+- Extraction and detection are not redaction or residual-PII validation.
+  No risk classification, APPROVED/BLOCKED decision, database, external API,
+  LLM, or Streamlit analysis workflow was added.
+
+### Next task
+
+**Phase 3 risk classification, semantic redaction, and secondary privacy
+validation.** Preserve block-relative offsets and source associations when
+consuming these normalized entities.
