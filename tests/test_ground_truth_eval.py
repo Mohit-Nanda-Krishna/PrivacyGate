@@ -49,6 +49,14 @@ def test_find_value_fuzzy_matches_ocr_damaged_names_only():
     assert find_value("+1 (555) 010-2031", "+1 (555) 010-2030") == []
 
 
+def test_find_value_finds_ocr_variant_next_to_exact_match():
+    text = "Quentin Abernathy signed; later Quentin Abernathe (OCR) signed again."
+    hits = find_value(text, "Quentin Abernathy")
+    assert [(text[s:e], is_fuzzy) for s, e, is_fuzzy in hits] == [
+        ("Quentin Abernathy", False), ("Quentin Abernathe", True),
+    ]
+
+
 def test_longer_rows_claim_text_before_surname_rows():
     page = build_page_texts(_doc(_block("b1", "Quentin R. Abernathy and later Abernathy alone")))
     occurrences = locate_ground_truth([_row("Abernathy"), _row("Quentin R. Abernathy")], page)
