@@ -76,3 +76,49 @@ def test_pipeline_end_to_end_with_pii(tmp_path: Path) -> None:
 def test_pipeline_nonexistent_file_fails_closed(tmp_path: Path) -> None:
     with pytest.raises(ExtractionError):
         run_pipeline(tmp_path / "nonexistent.pdf")
+
+
+def test_pipeline_multipass_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import privacygate.pipeline
+    from privacygate.models import PIIEntity, ValidationResult
+
+    test_docx = tmp_path / "multipass_doc.docx"
+    doc = DocxDocument()
+    doc.add_paragraph("Employee Jane Doe (Employee ID: EMP-83921).")
+    doc.save(test_docx)
+
+    # Simulate residual detection on pass 1, followed by clean validation on pass 2
+    calls = 0
+    orig_validate = privacygate.pipeline.validate_privacy
+
+    def mock_validate(sanitized_doc, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            residual = PIIEntity(
+                entity_type="PERSON",
+                start=0,
+                end=8,
+                confidence=0.85,
+                detector="mock_detector",
+                block_id=sanitized_doc.blocks[0].block_id,
+            )
+            return ValidationResult(
+                status="BLOCKED",
+                reason="Residual PII detected: 1 sensitive entity remains.",
+                residual_entities=[residual],
+            )
+        return orig_validate(sanitized_doc, **kwargs)
+
+    monkeypatch.setattr(privacygate.pipeline, "validate_privacy", mock_validate)
+
+    res_single = run_pipeline(test_docx, max_passes=1)
+    assert res_single.validation.status == "BLOCKED"
+    assert res_single.passes_executed == 1
+
+    calls = 0
+    res_multi = run_pipeline(test_docx, max_passes=2)
+    assert res_multi.validation.status == "APPROVED"
+    assert res_multi.passes_executed == 2
+
+

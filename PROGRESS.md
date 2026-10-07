@@ -402,3 +402,34 @@ Phase 5 completed. Moving to Phase 6: Final Polish, Documentation & Verification
 - Local platform: Windows, Python 3.11.9, uv 0.12.23.
 - `uv run pytest`: **142 passed, 3 skipped in 21.47s**, exit code 0. Zero failures.
 - `uv run python scripts/check_env.py`: Exit code 0, all packages and spaCy NLP model operational.
+
+## Phase 4+ — UI Overhaul & Iterative Multi-Pass Sanitization Engine (2026-10-07)
+
+### Completed
+
+- **Iterative Multi-Pass Sanitization Engine**:
+  - Enhanced `run_pipeline` and `process_document` in `src/privacygate/pipeline.py` with `max_passes: int = 1` support.
+  - In `Iterative Auto-Clean` mode (`max_passes=2`), if secondary scan detects residual entities, the firewall automatically initiates a second sanitization pass on the sanitized document, re-scans, and re-evaluates.
+  - Verified on Optiv real-world complex artifact `Cadence_TPRM_Training.docx`: Pass 1 catches 4 residual entities (`BLOCKED`); Pass 2 sanitizes residuals and successfully achieves `APPROVED` with 0 residual PII.
+- **Executive UI Overhaul (`app.py`)**:
+  - **Color-Coded Badge Highlighting**: Replaced plain raw text areas with styled visual HTML views in Tab 3:
+    - Detected PII in the original text is highlighted with color-coded risk pills (Critical = red `<mark>`, High = orange `<mark>`, Medium = yellow `<mark>`) with rich hover tooltips detailing entity type, detector, and risk.
+    - Sanitized text highlights semantic replacement tokens in emerald security badges (`[PERSON]`, `[EMAIL]`, `[EMPLOYEE_ID]`).
+    - Toggle between `Visual Badge Highlighting` and `Plain Text Diff`.
+  - **Interactive Analytics Charts**:
+    - Embedded Streamlit charts in Tab 2 displaying Entity Category breakdown and Risk Severity distribution.
+    - Added average confidence metric card.
+  - **Deep Block Inspector**: Added interactive coordinate and structural block slider in Tab 1 allowing inspection of any block's exact metadata, extraction method, and text length.
+  - **Pagination & Display Windows**: Added pagination controls for large documents (10 blocks per window) to ensure smooth browser rendering.
+  - **Quality Benchmark Tab**: Added dedicated Tab 5 reflecting PRD Section 26 metrics (100% structure retention, 0% residual leakage).
+- **Test Coverage**:
+  - Added `test_pipeline_multipass_mode` in `tests/test_pipeline.py`.
+  - Verified `tests/test_app.py` passes completely.
+  - Full suite: **143 passed, 3 skipped**.
+
+### Verification
+
+- Local platform: Windows, Python 3.11.9, uv 0.12.23.
+- `uv run pytest`: **143 passed, 3 skipped in 12.26s**, exit code 0. Zero failures.
+- `http://localhost:8501/_stcore/health`: Returns HTTP 200, status `ok`.
+

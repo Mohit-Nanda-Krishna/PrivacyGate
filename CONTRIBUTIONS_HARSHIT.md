@@ -125,6 +125,28 @@ This document tracks all contributions, architectural enhancements, implementati
   - `uv run pytest`: 142 passed, 3 skipped, 0 failures across 145 test items.
   - `uv run python scripts/check_env.py`: All 10 core packages, spaCy model, and diagnostic verified OK.
 
+---
+
+### Commit 7: `feat(ui): phase 4 executive dashboard overhaul and iterative multi-pass engine`
+- **Focus**: Phase 4 UI Overhaul & Iterative Multi-Pass Sanitization Engine
+- **Files Modified / Added**:
+  - `app.py`: Complete Streamlit UI overhaul featuring:
+    - Color-coded HTML badge highlighting for detected PII entities in original documents (with risk-coded pills: red for Critical, orange for High, yellow for Medium, plus tooltip attributes).
+    - Emerald green security badge highlighting for applied semantic tokens (`[PERSON]`, `[EMAIL]`, `[EMPLOYEE_ID]`) in sanitized documents.
+    - Toggle between *Visual Badge Highlighting* and *Plain Text Diff*.
+    - Interactive Analytics charts (Entities by Category and Risk Severity distribution).
+    - Deep Block Inspector with slider and JSON coordinate metadata.
+    - Window pagination (10 blocks per view) for smooth rendering of enterprise-scale documents.
+    - Quality Benchmark tab reflecting PRD Section 26 metrics.
+  - `src/privacygate/pipeline.py`: Added `max_passes` argument to `run_pipeline` and `process_document`, and `passes_executed` tracking in `PipelineResult`. Supports automated secondary cleaning when residual PII is caught on complex enterprise documents.
+  - `tests/test_pipeline.py`: Added `test_pipeline_multipass_mode` synthetic unit test validating automatic residual cleaning and fail-closed transitions.
+  - `PROGRESS.md`: Updated with Phase 4+ documentation and verification records.
+- **Verification & Test Results**:
+  - `uv run pytest`: 143 passed, 3 skipped in 12.26s.
+  - Streamlit health probe at `http://localhost:8501/_stcore/health` verified operational (`200 OK`).
+  - Tested on Optiv real-world artifacts (`Cadence_TPRM_Training.docx` achieves `APPROVED` with 0 residual PII under multi-pass mode).
+
+
 
 
 

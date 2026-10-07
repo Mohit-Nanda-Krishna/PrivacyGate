@@ -23,9 +23,10 @@ class PipelineResult:
     sanitized_document: Document
     validation: ValidationResult
     audit_report: AuditReport
+    passes_executed: int = 1
 
 
-def run_pipeline(file_path: str | Path) -> PipelineResult:
+def run_pipeline(file_path: str | Path, max_passes: int = 1) -> PipelineResult:
     """Execute the complete PrivacyGate firewall pipeline end-to-end.
 
     Stages:
@@ -35,13 +36,18 @@ def run_pipeline(file_path: str | Path) -> PipelineResult:
     4. Context-preserving semantic redaction
     5. Secondary fail-closed privacy scan
     6. Audit report generation
+
+    Args:
+        file_path: Path to document to process.
+        max_passes: Maximum sanitization passes (default 1). If > 1, automatically
+            attempts iterative cleaning of any residual PII detected in secondary scan.
     """
     path = Path(file_path)
 
     # 1. Extraction
     document = extract_document(path)
 
-    # 2. PII Detection
+    # 2. PII Detection (Initial Pass)
     entities = detect_pii(document)
 
     # 3. Risk Classification
@@ -52,6 +58,20 @@ def run_pipeline(file_path: str | Path) -> PipelineResult:
 
     # 5. Secondary Privacy Scan
     validation = validate_privacy(sanitized_doc)
+    passes_executed = 1
+
+    # Optional Iterative Multi-Pass Sanitization if residuals exist and max_passes > 1
+    if max_passes > 1 and validation.status != "APPROVED" and validation.residual_entities:
+        for _ in range(1, max_passes):
+            passes_executed += 1
+            classify_risks(validation.residual_entities)
+            sanitized_doc, extra_redactions = redact_document(
+                sanitized_doc, validation.residual_entities
+            )
+            redactions.extend(extra_redactions)
+            validation = validate_privacy(sanitized_doc)
+            if validation.status == "APPROVED":
+                break
 
     # 6. Audit Report
     audit_report = generate_audit_report(
@@ -67,10 +87,12 @@ def run_pipeline(file_path: str | Path) -> PipelineResult:
         sanitized_document=sanitized_doc,
         validation=validation,
         audit_report=audit_report,
+        passes_executed=passes_executed,
     )
 
 
-def process_document(file_path: str | Path) -> AuditReport:
+def process_document(file_path: str | Path, max_passes: int = 1) -> AuditReport:
     """Pipeline entry point returning the canonical AuditReport."""
-    result = run_pipeline(file_path)
+    result = run_pipeline(file_path, max_passes=max_passes)
     return result.audit_report
+
