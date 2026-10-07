@@ -293,9 +293,9 @@ if "pipeline_result" in st.session_state and st.session_state["pipeline_result"]
                     "page_number": selected_block.page_number,
                     "slide_number": selected_block.slide_number,
                     "paragraph_number": selected_block.paragraph_number,
-                    "table_number": selected_block.table_number,
-                    "row_number": selected_block.row_number,
-                    "column_number": selected_block.column_number,
+                    "table_number": selected_block.metadata.get("table_number"),
+                    "row_number": selected_block.metadata.get("row_number"),
+                    "column_number": selected_block.metadata.get("column_number"),
                     "extraction_method": selected_block.extraction_method,
                     "metadata": selected_block.metadata,
                 })
