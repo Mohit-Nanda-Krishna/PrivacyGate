@@ -1,6 +1,7 @@
 """Semantic PII redaction module."""
 
 from privacygate.redaction.redactor import (
+    PseudonymSession,
     RedactionRecord,
     get_placeholder,
     redact_document,
@@ -8,6 +9,7 @@ from privacygate.redaction.redactor import (
 )
 
 __all__ = [
+    "PseudonymSession",
     "RedactionRecord",
     "get_placeholder",
     "redact_document",

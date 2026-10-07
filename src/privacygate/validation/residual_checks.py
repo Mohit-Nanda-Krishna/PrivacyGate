@@ -14,6 +14,7 @@ from typing import Sequence
 from privacygate.detection.common import make_entity
 from privacygate.detection.names import NameRegistry
 from privacygate.models import ContentBlock, PIIEntity
+from privacygate.validation.placeholders import intentional_placeholder_spans, unissued_numbered_spans
 
 GATE_DETECTOR_PREFIX = "gate:"
 
@@ -28,9 +29,6 @@ ID_SHAPES: tuple[re.Pattern[str], ...] = (
     re.compile(r"\b[A-Z]{3}[ABCFGHJLPT][A-Z]\d{4}[A-Z]\b"),  # Indian PAN
     re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),  # SSN / ITIN shape
 )
-PLACEHOLDER = re.compile(r"\[[A-Z_]+(?:_\d+)?\]")
-
-
 def _digit_runs(text: str) -> list[tuple[int, int]]:
     spans = []
     for match in DIGIT_RUN.finditer(text):
@@ -42,6 +40,7 @@ def _digit_runs(text: str) -> list[tuple[int, int]]:
 
 def independent_residual_checks(
     blocks: Sequence[ContentBlock], name_registry: NameRegistry | None = None,
+    issued_tokens: frozenset[str] = frozenset(),
 ) -> list[PIIEntity]:
     """Return residual PII candidates found by checks independent of the NER model."""
     residuals: list[PIIEntity] = []
@@ -49,12 +48,14 @@ def independent_residual_checks(
         text = block.text
         if not text.strip():
             continue
-        placeholders = [m.span() for m in PLACEHOLDER.finditer(text)]
+        placeholders = intentional_placeholder_spans(text, issued_tokens)
 
         def inside_placeholder(start: int, end: int) -> bool:
             return any(s <= start and end <= e for s, e in placeholders)
 
         candidates: list[tuple[str, int, int, str]] = []
+        candidates += [("PII", s, e, "unissued_placeholder")
+                       for s, e in unissued_numbered_spans(text, issued_tokens)]
         if name_registry is not None:
             candidates += [("PERSON", s, e, "name_registry") for s, e in name_registry.find(text)]
         candidates += [("PHONE_NUMBER", s, e, "digit_run") for s, e in _digit_runs(text)]
