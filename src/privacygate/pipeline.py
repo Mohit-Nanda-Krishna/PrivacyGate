@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Sequence
 
 from privacygate.audit import generate_audit_report
-from privacygate.detection import detect_pii_with_registry
+from privacygate.crossfile import BatchFile, TokenSummary, build_cross_file_index
+from privacygate.detection import detect_pii_with_registry, merge_entities
+from privacygate.detection.names import NameRegistry, merge_registries, sweep_names
 from privacygate.extraction import extract_document
 from privacygate.models import AuditReport, Document, PIIEntity, ValidationResult
-from privacygate.redaction import PseudonymSession, redact_document
+from privacygate.redaction import PseudonymSession, RedactionRecord, redact_document
 from privacygate.risk import classify_risks
 from privacygate.validation import validate_privacy
 from privacygate.validation.privacy_gate import found_by_independent_checks
@@ -25,38 +28,34 @@ class PipelineResult:
     validation: ValidationResult
     audit_report: AuditReport
     passes_executed: int = 1
+    # Applied replacements (token + structural location only), all passes.
+    redactions: list[RedactionRecord] = field(default_factory=list, repr=False)
 
 
-def run_pipeline(file_path: str | Path, max_passes: int = 1) -> PipelineResult:
-    """Execute the complete PrivacyGate firewall pipeline end-to-end.
+@dataclass
+class BatchResult:
+    """Results for several files sanitized with one shared pseudonym session.
 
-    Stages:
-    1. Extraction & structure preservation
-    2. Hybrid PII detection
-    3. Sensitivity risk classification
-    4. Context-preserving semantic redaction
-    5. Secondary fail-closed privacy scan
-    6. Audit report generation
-
-    Args:
-        file_path: Path to document to process.
-        max_passes: Maximum sanitization passes (default 1). If > 1, automatically
-            attempts iterative cleaning of any residual PII detected in secondary scan.
+    cross_file maps each token to the files/locations it replaced and links
+    e-mail tokens to their person. In memory only; never serialize it.
     """
-    path = Path(file_path)
 
-    # 1. Extraction
-    document = extract_document(path)
+    results: list[PipelineResult]
+    cross_file: dict[str, TokenSummary] = field(default_factory=dict, repr=False)
 
-    # 2. PII Detection (Initial Pass). The name registry (people named anywhere in
-    # the original) lets the gate find names left behind without re-running NER.
-    entities, name_registry = detect_pii_with_registry(document)
 
+def _sanitize(
+    document: Document,
+    entities: list[PIIEntity],
+    name_registry: NameRegistry,
+    pseudonyms: PseudonymSession,
+    max_passes: int,
+) -> PipelineResult:
+    """Stages 3-6 for one extracted, detected document."""
     # 3. Risk Classification
     classify_risks(entities)
 
     # 4. Semantic Redaction
-    pseudonyms = PseudonymSession(name_registry=name_registry)
     sanitized_doc, redactions = redact_document(document, entities, session=pseudonyms)
 
     # 5. Secondary Privacy Scan
@@ -109,11 +108,88 @@ def run_pipeline(file_path: str | Path, max_passes: int = 1) -> PipelineResult:
         validation=validation,
         audit_report=audit_report,
         passes_executed=passes_executed,
+        redactions=redactions,
     )
+
+
+def run_pipeline(file_path: str | Path, max_passes: int = 1) -> PipelineResult:
+    """Execute the complete PrivacyGate firewall pipeline end-to-end.
+
+    Stages:
+    1. Extraction & structure preservation
+    2. Hybrid PII detection
+    3. Sensitivity risk classification
+    4. Context-preserving semantic redaction
+    5. Secondary fail-closed privacy scan
+    6. Audit report generation
+
+    Pseudonym tokens are scoped to this one run (one file).
+
+    Args:
+        file_path: Path to document to process.
+        max_passes: Maximum sanitization passes (default 1). If > 1, automatically
+            attempts iterative cleaning of any residual PII detected in secondary scan.
+    """
+    path = Path(file_path)
+
+    # 1. Extraction
+    document = extract_document(path)
+
+    # 2. PII Detection (Initial Pass). The name registry (people named anywhere in
+    # the original) lets the gate find names left behind without re-running NER.
+    entities, name_registry = detect_pii_with_registry(document)
+
+    pseudonyms = PseudonymSession(name_registry=name_registry)
+    return _sanitize(document, entities, name_registry, pseudonyms, max_passes)
+
+
+def run_batch(file_paths: Sequence[str | Path], max_passes: int = 1) -> BatchResult:
+    """Sanitize several files with one pseudonym session so tokens match across files.
+
+    Every file is extracted and detected first. The per-file name registries
+    are merged so the same person (and their name variants) resolves to one
+    [PERSON_n] token in every file. Each file is additionally swept for names
+    registered from the other files, using full names and dotted-initial forms
+    only ("Quentin R. Abernathy", "Q. Abernathy"), never a bare surname or
+    first name. Each file gets its own privacy gate decision, checked against
+    its own registry exactly as in run_pipeline(). A single path behaves like
+    run_pipeline().
+    """
+    detected = []
+    for file_path in file_paths:
+        document = extract_document(Path(file_path))
+        entities, registry = detect_pii_with_registry(document)
+        detected.append((document, entities, registry))
+
+    batch_registry = merge_registries(registry for _, _, registry in detected)
+    pseudonyms = PseudonymSession(name_registry=batch_registry)
+    results = []
+    for document, entities, registry in detected:
+        swept = sweep_names(
+            [block for block in document.blocks if block.text.strip()], batch_registry, full_names_only=True,
+        )
+        combined = _merge_by_block(document, list(entities) + swept)
+        results.append(_sanitize(document, combined, registry, pseudonyms, max_passes))
+
+    cross_file = build_cross_file_index(
+        [BatchFile(r.document, r.entities, r.redactions) for r in results], pseudonyms, batch_registry,
+    )
+    return BatchResult(results=results, cross_file=cross_file)
+
+
+def _merge_by_block(document: Document, entities: list[PIIEntity]) -> list[PIIEntity]:
+    """Merge overlapping detections per block, in document block order."""
+    by_block: dict[str, list[PIIEntity]] = {}
+    for entity in entities:
+        by_block.setdefault(entity.block_id, []).append(entity)
+    merged: list[PIIEntity] = []
+    for block in document.blocks:
+        if block.block_id in by_block:
+            merged.extend(merge_entities(by_block[block.block_id]))
+    return merged
 
 
 def process_document(file_path: str | Path, max_passes: int = 1) -> AuditReport:
     """Pipeline entry point returning the canonical AuditReport."""
     result = run_pipeline(file_path, max_passes=max_passes)
     return result.audit_report
-
