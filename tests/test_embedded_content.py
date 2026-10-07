@@ -129,7 +129,7 @@ def test_failed_image_ocr_blocks_gate_and_is_audited(tmp_path, monkeypatch):
     assert result.validation.status == "BLOCKED"
     assert "embedded image" in result.validation.reason
     exported = audit_report_to_dict(result.audit_report)
-    assert exported["extraction"]["embedded_images"][0]["status"] == "failed"
+    assert exported["extraction"]["embedded_images"]["failed"] == 1
 
 
 def test_missing_tesseract_with_raster_images_fails_closed(tmp_path, monkeypatch):

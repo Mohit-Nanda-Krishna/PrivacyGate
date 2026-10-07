@@ -34,29 +34,40 @@ def validate_privacy(
     the reason names only the error type, never its message (which could
     contain document text).
     """
-    failed_pages = sanitized_doc.metadata.get("ocr_failed_pages") or []
-    if failed_pages:
-        # Content on these pages was never inspected, so it cannot be approved.
-        return ValidationResult(
-            status="BLOCKED",
-            reason=(
-                "Extraction incomplete: OCR failed for page(s) "
-                f"{', '.join(map(str, failed_pages))}. Content on those pages was not inspected."
-            ),
-            residual_entities=[],
-        )
-    failed_images = sanitized_doc.metadata.get("embedded_images_failed") or []
-    if failed_images:
-        return ValidationResult(
-            status="BLOCKED",
-            reason=(
-                f"Extraction incomplete: OCR failed for {len(failed_images)} embedded image(s) "
-                f"({', '.join(failed_images)}). Their content was not inspected."
-            ),
-            residual_entities=[],
-        )
-
     try:
+        if type(sanitized_doc.metadata) is not dict:
+            raise TypeError("Invalid document metadata")
+        failed_pages = sanitized_doc.metadata.get("ocr_failed_pages", [])
+        failed_images = sanitized_doc.metadata.get("embedded_images_failed", [])
+        if type(failed_pages) not in (list, tuple) or any(
+            type(page) is not int or page <= 0 for page in failed_pages
+        ):
+            raise TypeError("Invalid failed-page metadata")
+        if type(failed_images) not in (list, tuple) or any(
+            type(image) is not str for image in failed_images
+        ):
+            raise TypeError("Invalid failed-image metadata")
+        if failed_pages:
+            # Content on these pages was never inspected, so it cannot be approved.
+            return ValidationResult(
+                status="BLOCKED",
+                reason=(
+                    "Extraction incomplete: OCR failed for page(s) "
+                    f"{', '.join(map(str, sorted(failed_pages)))}. "
+                    "Content on those pages was not inspected."
+                ),
+                residual_entities=[],
+            )
+        if failed_images:
+            return ValidationResult(
+                status="BLOCKED",
+                reason=(
+                    f"Extraction incomplete: OCR failed for {len(failed_images)} embedded image(s). "
+                    "Their content was not inspected."
+                ),
+                residual_entities=[],
+            )
+
         # Scan sanitized document using full hybrid detection
         detected_candidates = detect_pii(sanitized_doc)
 

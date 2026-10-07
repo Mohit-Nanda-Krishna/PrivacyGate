@@ -59,3 +59,27 @@ def test_redact_document_preserves_structure_and_non_mutating() -> None:
     assert sanitized_doc.blocks[0].page_number == 1
     assert sanitized_doc.blocks[0].paragraph_number == 1
     assert len(records) == 2
+
+
+def test_redaction_record_keeps_only_structural_coordinates() -> None:
+    text = "SECRET_PERSON_VALUE_92731"
+    location = {
+        "page_number": 2, "slide_number": 3, "table_number": 4,
+        "row_number": 5, "column_number": 6, "block_order": 7,
+        "shape_index": 8, "paragraph_number": True,
+        "filename": "employee-secret-document.pdf",
+        "image": "secret_image_name.png",
+        "matched_value": text,
+        "path": "C:/private/document.pdf",
+        "label": text,
+    }
+    entity = PIIEntity("PERSON", 0, len(text), 0.9, "test", "b1", location)
+
+    _, records = redact_text(text, [entity])
+
+    assert records[0].source_location == {
+        "page_number": 2, "slide_number": 3, "table_number": 4,
+        "row_number": 5, "column_number": 6, "shape_index": 8, "block_order": 7,
+    }
+    assert text not in repr(records)
+    assert "secret_image_name.png" not in repr(records)
