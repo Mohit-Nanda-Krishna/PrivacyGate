@@ -5,6 +5,7 @@ description = "A pre-LLM privacy firewall for business documents."
 readme = "README.md"
 requires-python = ">=3.11,<3.12"
 dependencies = [
+    "en-core-web-sm",
     "pandas>=3.0.6",
     "pillow>=12.3.0",
     "presidio-analyzer>=2.2.364",
@@ -13,7 +14,7 @@ dependencies = [
     "pytesseract>=0.3.13",
     "python-docx>=1.2.0",
     "python-pptx>=1.0.2",
-    "spacy>=3.8.16",
+    "spacy>=3.8.16,<3.9",
     "streamlit>=1.65.0",
 ]
 
@@ -24,6 +25,9 @@ build-backend = "uv_build"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+
+[tool.uv.sources]
+en-core-web-sm = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" }
 
 [dependency-groups]
 dev = [

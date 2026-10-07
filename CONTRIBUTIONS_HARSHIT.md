@@ -103,6 +103,29 @@ This document tracks all contributions, architectural enhancements, implementati
   - `uv run pytest`: 125 passed, 3 skipped, 0 failures across 128 test items.
   - `uv run python scripts/check_env.py`: Environment verified healthy with all dependencies operational.
 
+---
+
+## Commit: Review & Selective Integration of `mohit-phase2-safe` Branch
+
+- **Author**: Harshit (`harshit-git404`)
+- **Scope**: Peer Code Review, Selective Integration, and Reconciliation of Parallel Phase 2 Changes
+- **Context & Decisions**:
+  - Teammate Mohit pushed parallel Phase 2 changes on branch `mohit-phase2-safe` (commit `4d0ba30`).
+  - Conducted detailed code review comparing both branches to select superior implementations without regressions:
+    1. **Integrated `pyproject.toml` and `uv.lock`**: Adopted Mohit's pinned `en-core-web-sm` (3.8.0) wheel source, ensuring reproducibility via `uv sync --locked`.
+    2. **Integrated `check_env.py` and `tests/test_check_env.py`**: Added explicit spaCy model loading validation to verify the NER component exists before runtime.
+    3. **Integrated `src/privacygate/detection/common.py`**: Adopted `DetectionError`, `validate_entity`, and `make_entity` to capture structural metadata (`table_number`, `row_number`, `column_number`, `shape_id`, `shape_path`, `source_block_number`, `extraction_method`).
+    4. **Enhanced Presidio Offline Security**: Incorporated Mohit's `_OfflineEmailRecognizer` via `tldextract` (disabling network public suffix calls), Presidio debug log suppression (preventing accidental PII log leakage), `@lru_cache` analyzer caching, and pre-injected local spaCy pipeline.
+    5. **Harmonized Enterprise Rules**: Merged Mohit's labelled rules (`employee number = ...`, `Client ID # ...`, `Customer ID: ...`, `Portfolio ID: ...`) with standalone prefix patterns and dynamic `EnterprisePattern` registration.
+    6. **Harmonized Regex Detectors**: Merged internal-domain email patterns and labelled phone patterns with Luhn-verified credit cards, SSN, IP, and IBAN.
+    7. **Harmonized Merger**: Adopted component-union merging, pipe provenance (`presidio:...|regex:...`), conflict validation, and specificity ranking.
+    8. **Integrated `tests/test_merger.py`**: Added 16 tests covering edge cases, deduplication, permutation determinism, touching spans, and invalid confidences.
+    9. **Preserved Complete Pipeline & UI**: Safely preserved all Phase 3 (Risk, Redaction, Secondary Scan, Audit), Phase 4 (Streamlit UI), and Phase 5 (Evaluation) implementations. Added entity type aliasing so both naming conventions (`EMAIL`/`EMAIL_ADDRESS`, `PHONE`/`PHONE_NUMBER`, `GOVERNMENT_ID`/`US_SSN`) interoperate seamlessly.
+- **Verification & Test Results**:
+  - `uv run pytest`: 142 passed, 3 skipped, 0 failures across 145 test items.
+  - `uv run python scripts/check_env.py`: All 10 core packages, spaCy model, and diagnostic verified OK.
+
+
 
 
 

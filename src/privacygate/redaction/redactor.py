@@ -17,10 +17,20 @@ class RedactionRecord:
     source_location: dict[str, int | str] = field(default_factory=dict)
 
 
+PLACEHOLDER_MAP: dict[str, str] = {
+    "EMAIL_ADDRESS": "EMAIL",
+    "PHONE_NUMBER": "PHONE",
+    "US_SSN": "GOVERNMENT_ID",
+    "IBAN_CODE": "ACCOUNT_NUMBER",
+    "CUSTOMER_REF": "CUSTOMER_ID",
+}
+
+
 def get_placeholder(entity_type: str) -> str:
     """Return the standardized semantic placeholder for an entity type."""
     clean_type = entity_type.strip().upper()
-    return f"[{clean_type}]"
+    canonical_type = PLACEHOLDER_MAP.get(clean_type, clean_type)
+    return f"[{canonical_type}]"
 
 
 def redact_text(text: str, entities: Sequence[PIIEntity]) -> tuple[str, list[RedactionRecord]]:

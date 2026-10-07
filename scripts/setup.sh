@@ -12,4 +12,4 @@ uv sync --locked
 uv run --locked python scripts/check_env.py
 echo "Setup complete. Run: uv run streamlit run app.py"
 echo "Run tests: uv run pytest"
-echo "Tesseract and spaCy language models are not installed by this script."
+echo "The pinned English spaCy model is included. System Tesseract is installed separately."

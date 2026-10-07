@@ -15,7 +15,7 @@ try {
 
     Write-Host "Setup complete. Run: uv run streamlit run app.py"
     Write-Host "Run tests: uv run pytest"
-    Write-Host "Tesseract and spaCy language models are not installed by this script."
+    Write-Host "The pinned English spaCy model is included. System Tesseract is installed separately."
 }
 finally {
     Pop-Location

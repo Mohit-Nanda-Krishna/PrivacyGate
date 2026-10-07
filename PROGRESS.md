@@ -381,3 +381,24 @@ Phase 5 completed. Moving to Phase 6: Final Polish, Documentation & Verification
 ### Final Status
 
 **PrivacyGate MVP Complete.** All phases (Phase 0 through Phase 6) are implemented, verified, and operational.
+
+## Integration & Review: `mohit-phase2-safe` Branch (2026-10-07)
+
+### Reviewed and Integrated
+
+- Reviewed teammate Mohit's branch (`mohit-phase2-safe`, commit `4d0ba30`).
+- **Dependencies**: Integrated locked `en-core-web-sm` (3.8.0) into `pyproject.toml` and `uv.lock`.
+- **Environment Diagnostics**: Integrated NLP model validation checks into `scripts/check_env.py` and `tests/test_check_env.py`.
+- **Detection Common**: Integrated `detection/common.py` containing `DetectionError`, `validate_entity`, and `make_entity` preserving fine-grained structural coordinates (`table_number`, `row_number`, `column_number`, `shape_id`, `shape_path`, `source_block_number`, etc.).
+- **Offline Presidio Privacy**: Integrated `_OfflineEmailRecognizer` via `tldextract` without disk/network caches, Presidio logging suppression, cached engine (`@lru_cache`), and pre-injected spaCy pipeline to guarantee zero external network requests.
+- **Enterprise Rules**: Unified labelled enterprise patterns (`Employee No.: ...`, `Client ID # ...`, `Customer ID: ...`, `Portfolio ID: ...`) with standalone patterns and dynamic registration.
+- **Regex Detectors**: Merged internal-domain email patterns and labelled phone patterns with Luhn-verified credit cards, SSN, IP, and IBAN.
+- **Deterministic Merger**: Merged component-union overlap resolution with sorted pipe provenance (`presidio:...|regex:...`), conflict validation, and specificity ranking.
+- **Tests**: Integrated `tests/test_merger.py` (16 test cases). Total suite expanded from 128 to 145 items.
+- **Preserved & Protected**: Preserved complete Phase 3 pipeline (Risk, Redaction, Secondary Scan, Audit), Phase 4 Streamlit UI, Phase 5 Evaluation Benchmark, and full PRD documentation. Aliased entity types (`EMAIL`/`EMAIL_ADDRESS`, `PHONE`/`PHONE_NUMBER`, `GOVERNMENT_ID`/`US_SSN`) for complete bidirectional compatibility.
+
+### Verification
+
+- Local platform: Windows, Python 3.11.9, uv 0.12.23.
+- `uv run pytest`: **142 passed, 3 skipped in 21.47s**, exit code 0. Zero failures.
+- `uv run python scripts/check_env.py`: Exit code 0, all packages and spaCy NLP model operational.

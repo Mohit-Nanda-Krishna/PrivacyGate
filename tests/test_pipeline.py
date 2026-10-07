@@ -24,7 +24,7 @@ def test_pipeline_end_to_end_with_pii(tmp_path: Path) -> None:
     # Create a synthetic test DOCX with multiple PII categories
     test_docx = tmp_path / "cadence_report.docx"
     doc = DocxDocument()
-    doc.add_paragraph("Employee Jane Doe (EMP-83921) submitted review.")
+    doc.add_paragraph("Employee Jane Doe (Employee ID: EMP-83921) submitted review.")
     doc.add_paragraph("Contact: jane.doe@cadence.com, SSN: 123-45-6789.")
     doc.add_paragraph("Account: ACC-994821.")
     doc.save(test_docx)
@@ -38,8 +38,8 @@ def test_pipeline_end_to_end_with_pii(tmp_path: Path) -> None:
     # 2. Detection checks
     detected_types = {e.entity_type for e in pipeline_result.entities}
     assert "EMPLOYEE_ID" in detected_types
-    assert "EMAIL" in detected_types
-    assert "GOVERNMENT_ID" in detected_types
+    assert bool(detected_types & {"EMAIL", "EMAIL_ADDRESS"})
+    assert bool(detected_types & {"GOVERNMENT_ID", "US_SSN"})
     assert "ACCOUNT_NUMBER" in detected_types
 
     # 3. Risk classification checks

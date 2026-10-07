@@ -21,10 +21,14 @@ RISK_MAPPING: dict[str, RiskLevel] = {
     # HIGH: Employee/Client/Customer identifiers, contact details, addresses
     "EMPLOYEE_ID": "HIGH",
     "CLIENT_ID": "HIGH",
-    "PORTFOLIO_ID": "HIGH",
+    "CUSTOMER_ID": "HIGH",
     "CUSTOMER_REF": "HIGH",
+    "PORTFOLIO_ID": "HIGH",
+    "PROJECT_CODE": "HIGH",
     "EMAIL": "HIGH",
+    "EMAIL_ADDRESS": "HIGH",
     "PHONE": "HIGH",
+    "PHONE_NUMBER": "HIGH",
     "ADDRESS": "HIGH",
 
     # MEDIUM: Names, locations, dates, lower-risk contextual markers

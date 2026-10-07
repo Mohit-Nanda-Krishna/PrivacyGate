@@ -1,122 +1,96 @@
-"""Deterministic entity merging, deduplication, and overlap resolution."""
+"""Deterministic conservative union of overlapping spans within each block.
+
+Exact duplicates use maximum confidence and sorted, unique detector provenance.
+Overlapping components use the most specific type, then highest confidence,
+longest span, earliest start, and lexical type/detector as tie breakers. The
+winning type/confidence is applied to the UNION so partial-overlap tails are
+not silently lost. Touching spans and different blocks are never combined.
+Provenance lists all contributing sources, not agreement on the winning type.
+"""
 
 from __future__ import annotations
 
+from dataclasses import replace
+from itertools import groupby
 from typing import Sequence
+
+from privacygate.detection.common import DetectionError, validate_entity
 from privacygate.models import PIIEntity
 
-# Detector authority rank (higher is more authoritative)
-DETECTOR_PRIORITY: dict[str, int] = {
-    "custom_enterprise": 30,
-    "regex": 20,
-    "presidio": 10,
+SPECIFICITY: dict[str, int] = {
+    "EMPLOYEE_ID": 3,
+    "CLIENT_ID": 3,
+    "CUSTOMER_ID": 3,
+    "CUSTOMER_REF": 3,
+    "PORTFOLIO_ID": 3,
+    "PROJECT_CODE": 3,
+    "ACCOUNT_NUMBER": 3,
+    "EMAIL_ADDRESS": 2,
+    "EMAIL": 2,
+    "PHONE_NUMBER": 2,
+    "PHONE": 2,
+    "IP_ADDRESS": 2,
+    "CREDIT_CARD": 2,
+    "US_SSN": 2,
+    "GOVERNMENT_ID": 2,
+    "IBAN_CODE": 2,
+    "PERSON": 1,
+    "LOCATION": 1,
+    "DATE_TIME": 1,
+    "URL": 1,
 }
 
-# Type specificity rank
-TYPE_SPECIFICITY: dict[str, int] = {
-    "EMPLOYEE_ID": 30,
-    "CLIENT_ID": 30,
-    "PORTFOLIO_ID": 30,
-    "CUSTOMER_REF": 30,
-    "CREDIT_CARD": 25,
-    "GOVERNMENT_ID": 25,
-    "ACCOUNT_NUMBER": 25,
-    "EMAIL": 20,
-    "PHONE": 20,
-    "IP_ADDRESS": 20,
-    "PERSON": 15,
-    "LOCATION": 10,
-    "DATE_TIME": 5,
-    "URL": 5,
-}
 
-
-def _spans_overlap(e1: PIIEntity, e2: PIIEntity) -> bool:
-    """Return True if two entities in the same block have overlapping spans."""
-    return max(e1.start, e2.start) < min(e1.end, e2.end)
-
-
-def _resolve_cluster(cluster: list[PIIEntity]) -> PIIEntity:
-    """Deterministically resolve a cluster of overlapping entities into a single canonical PIIEntity."""
-    if len(cluster) == 1:
-        return cluster[0]
-
-    # Combine all unique detectors
-    all_detectors: list[str] = []
-    for e in cluster:
-        for d in e.detector.split(","):
-            d_clean = d.strip()
-            if d_clean and d_clean not in all_detectors:
-                all_detectors.append(d_clean)
-    combined_detector = ",".join(all_detectors)
-
-    # Pick the winning entity based on:
-    # 1. Detector priority
-    # 2. Entity type specificity
-    # 3. Confidence score
-    # 4. Span coverage (longer span)
-    def _rank_key(entity: PIIEntity) -> tuple[int, int, float, int]:
-        det_rank = max(DETECTOR_PRIORITY.get(d.strip(), 0) for d in entity.detector.split(","))
-        type_rank = TYPE_SPECIFICITY.get(entity.entity_type, 0)
-        span_len = entity.end - entity.start
-        return (det_rank, type_rank, entity.confidence, span_len)
-
-    winner = max(cluster, key=_rank_key)
-    max_confidence = max(e.confidence for e in cluster)
-
-    # Use winning bounds and winning type, but combined detector and max confidence
-    return PIIEntity(
-        entity_type=winner.entity_type,
-        start=winner.start,
-        end=winner.end,
-        confidence=round(max_confidence, 3),
-        detector=combined_detector,
-        block_id=winner.block_id,
+def _merge_component(entities: list[PIIEntity]) -> PIIEntity:
+    winner = min(
+        entities,
+        key=lambda entity: (
+            -SPECIFICITY.get(entity.entity_type, 0),
+            -entity.confidence,
+            -(entity.end - entity.start),
+            entity.start,
+            entity.entity_type,
+            entity.detector,
+        ),
+    )
+    all_detectors = {
+        source
+        for entity in entities
+        for source in entity.detector.replace(",", "|").split("|")
+        if source.strip()
+    }
+    return replace(
+        winner,
+        start=min(entity.start for entity in entities),
+        end=max(entity.end for entity in entities),
+        detector="|".join(sorted(all_detectors)),
         source_location=dict(winner.source_location),
-        risk_level=winner.risk_level,
     )
 
 
 def merge_entities(entities: Sequence[PIIEntity]) -> list[PIIEntity]:
-    """Deduplicate and merge detected entities deterministically.
-
-    Overlapping or identical spans within the same block are clustered and resolved
-    by prioritizing enterprise recognizers, structured regexes, and highest confidence.
-    """
-    if not entities:
-        return []
-
-    # Group entities by block_id
-    by_block: dict[str, list[PIIEntity]] = {}
+    """Return new entities sorted by block_id/start; never mutate inputs."""
     for entity in entities:
-        by_block.setdefault(entity.block_id, []).append(entity)
+        validate_entity(entity)
 
     merged: list[PIIEntity] = []
+    ordered = sorted(entities, key=lambda entity: (entity.block_id, entity.start, entity.end))
 
-    for _, block_entities in by_block.items():
-        # Sort by start offset ascending, then by span length descending
-        sorted_entities = sorted(
-            block_entities,
-            key=lambda e: (e.start, -(e.end - e.start)),
-        )
+    for _, block_entities in groupby(ordered, key=lambda entity: entity.block_id):
+        block_list = list(block_entities)
+        if any(entity.source_location != block_list[0].source_location for entity in block_list):
+            raise DetectionError("Detections in one block have conflicting source locations.")
 
-        # Form overlap clusters
-        clusters: list[list[PIIEntity]] = []
-        for entity in sorted_entities:
-            placed = False
-            for cluster in clusters:
-                # If overlaps with any entity in the cluster
-                if any(_spans_overlap(entity, existing) for existing in cluster):
-                    cluster.append(entity)
-                    placed = True
-                    break
-            if not placed:
-                clusters.append([entity])
+        component: list[PIIEntity] = []
+        end = -1
+        for entity in block_list:
+            if component and entity.start >= end:
+                merged.append(_merge_component(component))
+                component = []
+            component.append(entity)
+            end = max(end, entity.end)
 
-        # Resolve each cluster
-        for cluster in clusters:
-            resolved = _resolve_cluster(cluster)
-            merged.append(resolved)
+        if component:
+            merged.append(_merge_component(component))
 
-    # Sort final entities by block_id, start offset, end offset
-    return sorted(merged, key=lambda e: (e.block_id, e.start, e.end))
+    return merged
