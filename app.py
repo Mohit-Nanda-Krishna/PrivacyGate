@@ -18,7 +18,7 @@ from privacygate.audit import audit_report_to_json
 from privacygate.detection import DetectionError
 from privacygate.extraction import ExtractionError
 from privacygate.models import PIIEntity
-from privacygate.pipeline import run_pipeline
+from privacygate.pipeline import run_batch, run_pipeline
 from privacygate.risk.classifier import RISK_MAPPING
 
 st.set_page_config(
@@ -178,6 +178,12 @@ with st.sidebar:
         options=sample_options,
         index=0,
     )
+    extra_samples = st.multiselect(
+        "Add more artifacts to the batch (shared pseudonym tokens):",
+        options=[name for name in sample_files if name != selected_sample],
+        help="Files processed together share one token session: the same person gets the same "
+             "[PERSON_n] token in every file. The token mapping stays in memory only.",
+    )
 
     st.markdown("---")
     st.markdown("**Sanitization Mode:**")
@@ -194,45 +200,84 @@ with st.sidebar:
     st.caption("• Raw PII never sent downstream\n• Fail-closed enforcement\n• Traceable source coordinates\n• Zero-PII audit logging")
 
 # File selection logic
-uploaded_file = st.file_uploader(
-    "Upload Business Evidence Document",
+uploaded_files = st.file_uploader(
+    "Upload Business Evidence Document(s)",
     type=["pdf", "docx", "pptx"],
-    help="Supported formats: Digital/Scanned PDF, Microsoft Word DOCX, Microsoft PowerPoint PPTX",
+    accept_multiple_files=True,
+    help="Supported formats: Digital/Scanned PDF, Microsoft Word DOCX, Microsoft PowerPoint PPTX. "
+         "Several files are processed as one batch with shared pseudonym tokens.",
 )
 
-selected_name: str | None = None
-if uploaded_file is not None:
-    selected_name = uploaded_file.name
-elif selected_sample != "None (Upload Custom File)":
-    selected_name = selected_sample
+# (display name, uploaded file or sample path) in processing order
+selected: list[tuple[str, object]] = [(upload.name, upload) for upload in uploaded_files or []]
+if not selected and selected_sample != "None (Upload Custom File)":
+    selected = [(selected_sample, sample_files[selected_sample])]
+selected += [(name, sample_files[name]) for name in extra_samples if name not in dict(selected)]
 
-if selected_name is not None:
-    st.write(f"**Selected Document:** `{selected_name}`")
-    process_btn = st.button("🚀 Analyze & Firewall Document", type="primary")
+if selected:
+    names = ", ".join(f"`{name}`" for name, _ in selected)
+    st.write(f"**Selected Document{'s' if len(selected) > 1 else ''}:** {names}")
+    process_btn = st.button("🚀 Analyze & Firewall Document" + ("s" if len(selected) > 1 else ""), type="primary")
 
     if process_btn:
-        with st.spinner(f"Processing document through PrivacyGate firewall (max passes: {max_passes})..."):
-            temp_path: Path | None = None
+        with st.spinner(f"Processing through PrivacyGate firewall (max passes: {max_passes})..."):
+            temp_paths: list[Path] = []
             try:
-                if uploaded_file is not None:
+                paths: list[Path] = []
+                for name, source in selected:
+                    if isinstance(source, Path):
+                        paths.append(source)
+                        continue
                     # Uploaded bytes exist on disk only while the pipeline runs.
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=Path(uploaded_file.name).suffix) as handle:
-                        handle.write(uploaded_file.getvalue())
-                    temp_path = Path(handle.name)
-                    file_to_process = temp_path
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=Path(name).suffix) as handle:
+                        handle.write(source.getvalue())
+                    temp_paths.append(Path(handle.name))
+                    paths.append(temp_paths[-1])
+                if len(paths) == 1:
+                    batch = None
+                    results = [run_pipeline(paths[0], max_passes=max_passes)]
                 else:
-                    file_to_process = sample_files[selected_sample]
-                result = run_pipeline(file_to_process, max_passes=max_passes)
-                result.document.filename = result.sanitized_document.filename = selected_name
-                st.session_state["pipeline_result"] = result
+                    batch = run_batch(paths, max_passes=max_passes)
+                    results = batch.results
+                for (name, _), item in zip(selected, results):
+                    item.document.filename = item.sanitized_document.filename = name
+                if batch is not None:
+                    # Locations were recorded with the on-disk names; show the display names.
+                    renames = {path.name: name for path, (name, _) in zip(paths, selected)}
+                    for summary in batch.cross_file.values():
+                        summary.occurrences = [(renames.get(file, file), where) for file, where in summary.occurrences]
+                st.session_state["batch_result"] = batch
+                st.session_state["pipeline_result"] = results[0]
             except Exception as exc:
                 # Project errors carry vetted messages; anything else may quote document text.
                 detail = f": {exc}" if isinstance(exc, (ExtractionError, DetectionError)) else ""
                 st.error(f"Processing failed closed: {type(exc).__name__}{detail}")
                 st.session_state["pipeline_result"] = None
+                st.session_state["batch_result"] = None
             finally:
-                if temp_path is not None:
+                for temp_path in temp_paths:
                     temp_path.unlink(missing_ok=True)
+
+batch_result = st.session_state.get("batch_result")
+if batch_result is not None and st.session_state.get("pipeline_result") is not None:
+    st.markdown("---")
+    st.markdown("#### Batch Overview (shared pseudonym tokens)")
+    st.dataframe(
+        pd.DataFrame([{
+            "File": item.document.filename,
+            "Gate": item.validation.status,
+            "Detected PII": len(item.entities),
+            "Redactions": len(item.redactions),
+        } for item in batch_result.results]),
+        use_container_width=True, hide_index=True,
+    )
+    shown = st.radio(
+        "Show detailed results for:",
+        options=list(range(len(batch_result.results))),
+        format_func=lambda index: batch_result.results[index].document.filename,
+        horizontal=True,
+    )
+    st.session_state["pipeline_result"] = batch_result.results[shown]
 
 # Render results if available
 if "pipeline_result" in st.session_state and st.session_state["pipeline_result"] is not None:
@@ -264,13 +309,48 @@ if "pipeline_result" in st.session_state and st.session_state["pipeline_result"]
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    tab_summary, tab_findings, tab_redaction, tab_audit, tab_benchmarks = st.tabs([
+    tab_labels = [
         "📋 1. Extraction Summary",
         "🔍 2. PII Findings & Analytics",
         "✂️ 3. Semantic Redaction Preview",
         "📊 4. Audit Report & Export",
         "📈 5. Quality Benchmark",
-    ])
+    ]
+    if batch_result is not None:
+        tab_labels.append("🔗 6. Cross-File Identities")
+    tabs = st.tabs(tab_labels)
+    tab_summary, tab_findings, tab_redaction, tab_audit, tab_benchmarks = tabs[:5]
+
+    if batch_result is not None:
+        with tabs[5]:
+            st.subheader("Cross-File Identities")
+            st.caption(
+                "One token session covers the whole batch, so the same person carries the same token in "
+                "every file. E-mail addresses keep their own token and are linked to their person. "
+                "This view is built in memory from tokens and locations only; it is not exported."
+            )
+            summaries = sorted(batch_result.cross_file.values(),
+                               key=lambda s: (-len(s.files), s.entity_type, s.token))
+            only_shared = st.checkbox("Only tokens that appear in more than one file", value=False)
+            type_options = sorted({s.entity_type for s in summaries})
+            chosen_types = st.multiselect("Entity types", options=type_options,
+                                          default=[t for t in ("PERSON", "EMAIL") if t in type_options])
+            rows = [{
+                "Token": s.token,
+                "Type": s.entity_type,
+                "Files": len(s.files),
+                "Where": s.locations_text(),
+                "Linked": s.linked_person or ", ".join(s.linked_emails),
+            } for s in summaries
+                if s.entity_type in chosen_types and (len(s.files) > 1 or not only_shared)]
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Tokens in batch", len(summaries))
+            c2.metric("Tokens in 2+ files", sum(len(s.files) > 1 for s in summaries))
+            c3.metric("E-mails linked to a person", sum(s.linked_person is not None for s in summaries))
+            if rows:
+                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            else:
+                st.info("No tokens match the current filters.")
 
     with tab_summary:
         st.subheader("Document Extraction Summary")

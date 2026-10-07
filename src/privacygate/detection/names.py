@@ -267,7 +267,46 @@ def build_name_registry(
         # "E. Bertucci" registered from NER still learns the initial from e.bertucci@...
         if person.first is None and person.initial is None:
             person.initial = email_names.get(person.last.replace("-", "").lower())
-    return NameRegistry(list(people.values()))
+    # A surname-only entry next to exactly one named person with that surname
+    # ("Q. Abernathy" beside "Quentin R. Abernathy") is the same person; keeping
+    # both made resolve_person() ambiguous, so variants got different tokens.
+    return merge_registries([NameRegistry(list(people.values()))])
+
+
+def merge_registries(registries: Iterable[NameRegistry]) -> NameRegistry:
+    """One registry for a batch of documents; the same person appears once.
+
+    People with the same first name and surname and compatible middle names
+    (per _compatible_middles) are merged, keeping the most specific middles and
+    any known initial. Different middle names stay separate people, as within
+    one document. A surname-only entry is dropped when exactly one named person
+    with that surname exists in the batch, so resolve_person() can still map
+    the bare surname to that person.
+    """
+    merged: list[_Person] = []
+    for registry in registries:
+        for person in registry.people:
+            for existing in merged:
+                same_name = (
+                    existing.last.casefold() == person.last.casefold()
+                    and (existing.first or "").casefold() == (person.first or "").casefold()
+                )
+                if same_name and _compatible_middles(existing.middles, person.middles):
+                    if len(person.middles) > len(existing.middles):
+                        existing.middles = person.middles
+                    existing.initial = existing.initial or person.initial
+                    break
+            else:
+                merged.append(_Person(person.first, person.last, person.middles, person.initial))
+    named_by_last: dict[str, int] = {}
+    for person in merged:
+        if person.first:
+            key = person.last.replace("-", "").casefold()
+            named_by_last[key] = named_by_last.get(key, 0) + 1
+    return NameRegistry([
+        person for person in merged
+        if person.first or named_by_last.get(person.last.replace("-", "").casefold(), 0) != 1
+    ])
 
 
 def sweep_names(blocks: Sequence[ContentBlock], registry: NameRegistry) -> list[PIIEntity]:
