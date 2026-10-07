@@ -191,32 +191,37 @@ uploaded_file = st.file_uploader(
     help="Supported formats: Digital/Scanned PDF, Microsoft Word DOCX, Microsoft PowerPoint PPTX",
 )
 
-file_to_process: Path | None = None
-temp_file_ref = None
-
+selected_name: str | None = None
 if uploaded_file is not None:
-    suffix = Path(uploaded_file.name).suffix
-    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-    temp_file.write(uploaded_file.getvalue())
-    temp_file.flush()
-    temp_file.close()
-    file_to_process = Path(temp_file.name)
-    temp_file_ref = file_to_process
+    selected_name = uploaded_file.name
 elif selected_sample != "None (Upload Custom File)":
-    file_to_process = sample_files[selected_sample]
+    selected_name = selected_sample
 
-if file_to_process is not None:
-    st.write(f"**Selected Document:** `{file_to_process.name}`")
+if selected_name is not None:
+    st.write(f"**Selected Document:** `{selected_name}`")
     process_btn = st.button("🚀 Analyze & Firewall Document", type="primary")
 
     if process_btn:
         with st.spinner(f"Processing document through PrivacyGate firewall (max passes: {max_passes})..."):
+            temp_path: Path | None = None
             try:
+                if uploaded_file is not None:
+                    # Uploaded bytes exist on disk only while the pipeline runs.
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=Path(uploaded_file.name).suffix) as handle:
+                        handle.write(uploaded_file.getvalue())
+                    temp_path = Path(handle.name)
+                    file_to_process = temp_path
+                else:
+                    file_to_process = sample_files[selected_sample]
                 result = run_pipeline(file_to_process, max_passes=max_passes)
+                result.document.filename = result.sanitized_document.filename = selected_name
                 st.session_state["pipeline_result"] = result
             except Exception as exc:
                 st.error(f"Processing failed closed: {type(exc).__name__}: {exc}")
                 st.session_state["pipeline_result"] = None
+            finally:
+                if temp_path is not None:
+                    temp_path.unlink(missing_ok=True)
 
 # Render results if available
 if "pipeline_result" in st.session_state and st.session_state["pipeline_result"] is not None:
@@ -265,14 +270,42 @@ if "pipeline_result" in st.session_state and st.session_state["pipeline_result"]
         pages_slides = doc.metadata.get("page_count") or doc.metadata.get("slide_count") or "N/A"
         col4.metric("Pages / Slides", str(pages_slides))
 
+        page_report = doc.metadata.get("page_report") or []
+        if page_report:
+            st.markdown("#### Per-Page Extraction Report")
+            statuses = [entry["status"] for entry in page_report]
+            p1, p2, p3, p4 = st.columns(4)
+            p1.metric("Native Pages", statuses.count("native"))
+            p2.metric("OCR'd Pages", statuses.count("ocr"))
+            p3.metric("Failed Pages", statuses.count("failed"))
+            p4.metric("OCR Time (sum)", f"{sum(entry.get('seconds', 0) for entry in page_report):.1f} s")
+            if "failed" in statuses:
+                st.error(
+                    "OCR failed on page(s) "
+                    + ", ".join(str(entry["page"]) for entry in page_report if entry["status"] == "failed")
+                    + ". Text on those pages was not inspected, so the document cannot be approved."
+                )
+            st.dataframe(
+                pd.DataFrame([{
+                    "Page": entry["page"],
+                    "Status": entry["status"],
+                    "Attempts": entry.get("attempts", 0),
+                    "Seconds": entry.get("seconds", 0.0),
+                    "Note": entry.get("reason", ""),
+                } for entry in page_report]),
+                use_container_width=True,
+                hide_index=True,
+            )
+
         st.markdown("#### Document Structure Blocks")
         block_records = []
         for b in doc.blocks[:50]:  # Limit display to first 50 blocks
             block_records.append({
                 "Block ID": b.block_id,
-                "Page": b.page_number if b.page_number is not None else "-",
-                "Slide": b.slide_number if b.slide_number is not None else "-",
-                "Paragraph": b.paragraph_number if b.paragraph_number is not None else "-",
+                # None (not "-") keeps the columns numeric for Arrow serialization.
+                "Page": b.page_number,
+                "Slide": b.slide_number,
+                "Paragraph": b.paragraph_number,
                 "Extraction Method": b.extraction_method or "native",
                 "Text Preview": (b.text[:80] + "...") if len(b.text) > 80 else b.text,
             })
@@ -286,16 +319,16 @@ if "pipeline_result" in st.session_state and st.session_state["pipeline_result"]
                     min_value=0,
                     max_value=len(doc.blocks) - 1,
                     value=0,
-                )
+                ) if len(doc.blocks) > 1 else 0
                 selected_block = doc.blocks[inspector_block_idx]
                 st.write(f"**Block ID:** `{selected_block.block_id}` | **Length:** {len(selected_block.text)} chars")
                 st.json({
                     "page_number": selected_block.page_number,
                     "slide_number": selected_block.slide_number,
                     "paragraph_number": selected_block.paragraph_number,
-                    "table_number": selected_block.table_number,
-                    "row_number": selected_block.row_number,
-                    "column_number": selected_block.column_number,
+                    "table_number": selected_block.metadata.get("table_number"),
+                    "row_number": selected_block.metadata.get("row_number"),
+                    "column_number": selected_block.metadata.get("column_number"),
                     "extraction_method": selected_block.extraction_method,
                     "metadata": selected_block.metadata,
                 })
@@ -363,7 +396,11 @@ if "pipeline_result" in st.session_state and st.session_state["pipeline_result"]
         max_blocks = len(doc.blocks)
         range_size = 10
         total_pages = max(1, (max_blocks + range_size - 1) // range_size)
-        page_idx = st.slider("Select Display Window (10 blocks per page):", min_value=1, max_value=total_pages, value=1)
+        # st.slider rejects min_value == max_value, so small documents get no slider.
+        page_idx = (
+            st.slider("Select Display Window (10 blocks per page):", min_value=1, max_value=total_pages, value=1)
+            if total_pages > 1 else 1
+        )
         start_block_idx = (page_idx - 1) * range_size
         end_block_idx = min(start_block_idx + range_size, max_blocks)
 

@@ -25,6 +25,18 @@ def validate_privacy(
 
     Fails closed: Any residual PII or validation error blocks the document.
     """
+    failed_pages = sanitized_doc.metadata.get("ocr_failed_pages") or []
+    if failed_pages:
+        # Content on these pages was never inspected, so it cannot be approved.
+        return ValidationResult(
+            status="BLOCKED",
+            reason=(
+                "Extraction incomplete: OCR failed for page(s) "
+                f"{', '.join(map(str, failed_pages))}. Content on those pages was not inspected."
+            ),
+            residual_entities=[],
+        )
+
     try:
         # Scan sanitized document using full hybrid detection
         detected_candidates = detect_pii(sanitized_doc)

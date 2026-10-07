@@ -93,7 +93,7 @@ def test_native_pdf_never_renders_or_invokes_ocr(monkeypatch):
     def forbidden(*args, **kwargs):
         pytest.fail("Native pages must not require OCR or rendering")
 
-    monkeypatch.setattr(pdf, "extract_page_ocr", forbidden)
+    monkeypatch.setattr(pdf, "render_page", forbidden)
     monkeypatch.setattr(pymupdf.Page, "get_pixmap", forbidden)
     document = extract_document(FIXTURES / "native.pdf")
     assert len(document.blocks) == 4
@@ -134,13 +134,92 @@ def test_render_failure_rejects_extraction(ocr_fixtures, fake_engine, monkeypatc
     RuntimeError("Tesseract process timeout"),
     OSError("private path"),
 ])
-def test_engine_failure_is_safe_and_closes_image(ocr_fixtures, fake_engine, failure):
+def test_engine_failure_marks_page_failed_keeps_other_pages_and_closes_image(ocr_fixtures, fake_engine, failure):
     fake_engine.side_effect = failure
-    with pytest.raises(ExtractionError, match="OCR failed for page 2") as error:
-        extract_document(ocr_fixtures / "mixed.pdf")
-    assert "private" not in str(error.value)
+    document = extract_document(ocr_fixtures / "mixed.pdf")
+    assert [block.page_number for block in document.blocks] == [1, 3]
+    assert document.metadata["ocr_failed_pages"] == [2]
+    report = {entry["page"]: entry for entry in document.metadata["page_report"]}
+    assert [report[n]["status"] for n in (1, 2, 3)] == ["native", "failed", "native"]
+    assert report[2]["reason"].startswith("OCR failed for page 2")
+    assert "private" not in report[2]["reason"]
     with pytest.raises(ValueError, match="closed"):
         fake_engine.call_args.args[0].getpixel((0, 0))
+
+
+def test_engine_failure_on_only_page_still_rejects_document(ocr_fixtures, fake_engine):
+    fake_engine.side_effect = pytesseract.TesseractError(1, "private engine stderr")
+    with pytest.raises(ExtractionError, match="OCR failed for page 1") as error:
+        extract_document(ocr_fixtures / "scanned.pdf")
+    assert "private" not in str(error.value)
+
+
+def test_timeout_is_retried_once_with_longer_timeout(ocr_fixtures, fake_engine):
+    fake_engine.side_effect = [RuntimeError("Tesseract process timeout"), synthetic_data()]
+    document = extract_document(ocr_fixtures / "scanned.pdf")
+    assert [call.kwargs["timeout"] for call in fake_engine.call_args_list] == [30, 120]
+    assert document.metadata["page_report"][0] | {"seconds": 0} == {
+        "page": 1, "status": "ocr", "attempts": 2, "seconds": 0,
+    }
+    assert document.metadata["ocr_failed_pages"] == []
+
+
+def test_timeout_twice_fails_page_after_two_attempts(ocr_fixtures, fake_engine):
+    fake_engine.side_effect = RuntimeError("Tesseract process timeout")
+    document = extract_document(ocr_fixtures / "mixed.pdf")
+    report = {entry["page"]: entry for entry in document.metadata["page_report"]}
+    assert report[2]["status"] == "failed" and report[2]["attempts"] == 2
+    assert "timed out after a retry" in report[2]["reason"]
+    assert fake_engine.call_count == 2
+
+
+def test_non_timeout_errors_are_not_retried(ocr_fixtures, fake_engine):
+    fake_engine.side_effect = OSError("private path")
+    extract_document(ocr_fixtures / "mixed.pdf")
+    assert fake_engine.call_count == 1
+
+
+def test_parallel_ocr_keeps_deterministic_page_order(tmp_path, monkeypatch):
+    import random
+    import time
+
+    monkeypatch.setattr(ocr.shutil, "which", lambda command: "tesseract")
+    path = tmp_path / "many.pdf"
+    with pymupdf.open() as source:
+        for _ in range(9):
+            source.new_page(width=200, height=200)
+        source.save(path)
+    rng = random.Random(7)
+
+    def slow_engine(image, **kwargs):
+        time.sleep(rng.random() * 0.03)  # finish out of order
+        return synthetic_data()
+
+    monkeypatch.setattr(ocr.pytesseract, "image_to_data", slow_engine)
+    document = extract_document(path)
+    assert [block.page_number for block in document.blocks] == [n for n in range(1, 10) for _ in (0, 1)]
+    assert [entry["page"] for entry in document.metadata["page_report"]] == list(range(1, 10))
+    assert document.metadata["ocr_pages"] == list(range(1, 10))
+
+
+def test_tesseract_runs_single_threaded():
+    import os
+
+    assert os.environ.get("OMP_THREAD_LIMIT")
+
+
+def test_failed_page_blocks_gate_even_with_multiple_passes(ocr_fixtures, fake_engine):
+    from privacygate.audit import audit_report_to_dict
+    from privacygate.pipeline import run_pipeline
+
+    fake_engine.side_effect = pytesseract.TesseractError(1, "private engine stderr")
+    result = run_pipeline(ocr_fixtures / "mixed.pdf", max_passes=3)
+    assert result.validation.status == "BLOCKED"
+    assert "OCR failed for page(s) 2" in result.validation.reason
+    exported = audit_report_to_dict(result.audit_report)
+    assert exported["extraction"]["failed_pages"] == [2]
+    assert [entry["status"] for entry in exported["extraction"]["pages"]] == ["native", "failed", "native"]
+    assert "private" not in str(exported)
 
 
 def test_disappearing_executable_has_project_error(ocr_fixtures, fake_engine):

@@ -1,5 +1,6 @@
 """Local Tesseract OCR for individual PDF pages; no external services."""
 
+import os
 import shutil
 
 import pymupdf
@@ -9,49 +10,77 @@ from PIL import Image
 from privacygate.extraction.errors import ExtractionError, OCRRequiredError
 from privacygate.models import ContentBlock
 
+# Tesseract's OpenMP threading oversubscribes CPUs when pages run in parallel
+# and can stall a single page past its timeout. One thread per engine process.
+os.environ.setdefault("OMP_THREAD_LIMIT", "1")
+
 OCR_DPI = 300
 OCR_TIMEOUT_SECONDS = 30
+OCR_RETRY_TIMEOUT_SECONDS = 120
 MIN_TEXT_CHARACTERS = 20
 
 
-def extract_page_ocr(page: pymupdf.Page) -> list[ContentBlock]:
-    """Render RGB at 300 DPI and emit lines in Tesseract's returned reading order.
-
-    English, automatic page segmentation (PSM 3), and a 30-second engine timeout
-    are used. Bounding boxes are pixels in the rendered (possibly rotated) page,
-    not PDF coordinates. Fewer than 20 alphanumeric characters is unusable.
-    pytesseract's temporary input/output files are cleaned up by its context
-    manager on success and failure; PrivacyGate keeps no image artifacts.
-    """
-    page_number = page.number + 1
-    missing_message = (
+def _missing_message(page_number: int) -> str:
+    return (
         f"Page {page_number} requires OCR, but Tesseract is unavailable. "
         "Install the Tesseract executable with English language data and add it to PATH."
     )
+
+
+def render_page(page: pymupdf.Page) -> Image.Image:
+    """Render one page to an RGB image at OCR_DPI. Not thread-safe (PyMuPDF)."""
+    page_number = page.number + 1
     if shutil.which("tesseract") is None:
-        raise OCRRequiredError(missing_message)
+        raise OCRRequiredError(_missing_message(page_number))
     try:
         pixmap = page.get_pixmap(dpi=OCR_DPI, colorspace=pymupdf.csRGB, alpha=False)
-        image = Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
+        return Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
     except Exception:
         raise ExtractionError(f"Could not render page {page_number} for OCR.") from None
 
+
+def _run_engine(image: Image.Image, timeout: int) -> dict:
+    return pytesseract.image_to_data(
+        image, lang="eng", config=f"--psm 3 --dpi {OCR_DPI}",
+        output_type=pytesseract.Output.DICT, timeout=timeout,
+    )
+
+
+def _is_timeout(error: Exception) -> bool:
+    # pytesseract signals its subprocess timeout as RuntimeError("Tesseract process timeout").
+    return isinstance(error, RuntimeError) and "timeout" in str(error).lower()
+
+
+def recognize_image(image: Image.Image, page_number: int) -> tuple[list[ContentBlock], int]:
+    """OCR a rendered page; returns (blocks, attempts). Always closes the image.
+
+    A timeout is retried once with OCR_RETRY_TIMEOUT_SECONDS; other engine
+    failures are not retried. Safe to call from worker threads.
+    """
+    attempts = 0
     try:
-        data = pytesseract.image_to_data(
-            image, lang="eng", config=f"--psm 3 --dpi {OCR_DPI}",
-            output_type=pytesseract.Output.DICT, timeout=OCR_TIMEOUT_SECONDS,
-        )
-    except pytesseract.TesseractNotFoundError:
-        raise OCRRequiredError(missing_message) from None
-    except Exception:
-        # Never expose Tesseract stderr, paths, or recognized text in errors.
-        raise ExtractionError(
-            f"OCR failed for page {page_number}. Check Tesseract and English language data; "
-            "the engine may have failed or timed out."
-        ) from None
+        for timeout in (OCR_TIMEOUT_SECONDS, OCR_RETRY_TIMEOUT_SECONDS):
+            attempts += 1
+            try:
+                data = _run_engine(image, timeout)
+                break
+            except pytesseract.TesseractNotFoundError:
+                raise OCRRequiredError(_missing_message(page_number)) from None
+            except Exception as error:
+                if _is_timeout(error) and timeout != OCR_RETRY_TIMEOUT_SECONDS:
+                    continue
+                # Never expose Tesseract stderr, paths, or recognized text in errors.
+                reason = "timed out after a retry" if _is_timeout(error) else "the engine failed"
+                raise ExtractionError(
+                    f"OCR failed for page {page_number} ({reason}). "
+                    "Check Tesseract and English language data."
+                ) from None
     finally:
         image.close()
+    return _blocks_from_data(data, page_number), attempts
 
+
+def _blocks_from_data(data: dict, page_number: int) -> list[ContentBlock]:
     try:
         lines = {}
         for index, text in enumerate(data["text"]):
@@ -87,4 +116,18 @@ def extract_page_ocr(page: pymupdf.Page) -> list[ContentBlock]:
             f"OCR produced unusable text for page {page_number} "
             "(fewer than 20 alphanumeric characters). Extraction is incomplete."
         )
+    return blocks
+
+
+def extract_page_ocr(page: pymupdf.Page) -> list[ContentBlock]:
+    """Render RGB at 300 DPI and emit lines in Tesseract's returned reading order.
+
+    English, automatic page segmentation (PSM 3), and a 30-second engine timeout
+    (one retry at 120 seconds on timeout) are used. Bounding boxes are pixels in
+    the rendered (possibly rotated) page, not PDF coordinates. Fewer than 20
+    alphanumeric characters is unusable. pytesseract's temporary input/output
+    files are cleaned up by its context manager on success and failure;
+    PrivacyGate keeps no image artifacts.
+    """
+    blocks, _ = recognize_image(render_page(page), page.number + 1)
     return blocks
