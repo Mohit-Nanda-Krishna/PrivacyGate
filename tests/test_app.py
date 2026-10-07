@@ -4,8 +4,10 @@ from pathlib import Path
 import runpy
 
 import pytesseract
+import streamlit as st
 from streamlit.testing.v1 import AppTest
 
+from privacygate.audit import audit_report_to_json
 from privacygate.extraction import ocr
 from privacygate.pipeline import run_pipeline
 
@@ -31,6 +33,22 @@ def test_results_render_page_report_and_failed_page_warning(tmp_path, monkeypatc
     monkeypatch.setattr(ocr.pytesseract, "image_to_data", failing_engine)
     result = run_pipeline(tmp_path / "mixed.pdf")
 
+    serialized_reports = []
+    audit_downloads = []
+    original_download = st.download_button
+
+    def capture_serializer(report):
+        serialized_reports.append(report)
+        return audit_report_to_json(report)
+
+    def capture_download(*args, **kwargs):
+        if kwargs.get("label") == "📥 Export Audit Report (JSON)":
+            audit_downloads.append(kwargs["data"])
+        return original_download(*args, **kwargs)
+
+    monkeypatch.setattr("privacygate.audit.audit_report_to_json", capture_serializer)
+    monkeypatch.setattr(st, "download_button", capture_download)
+
     app = AppTest.from_file(str(APP_PATH))
     app.session_state["pipeline_result"] = result
     app.run(timeout=60)
@@ -38,3 +56,5 @@ def test_results_render_page_report_and_failed_page_warning(tmp_path, monkeypatc
     assert any("Per-Page Extraction Report" in str(m.value) for m in app.markdown)
     assert any("OCR failed on page(s) 2" in str(e.value) for e in app.error)
     assert any(metric.label == "Failed Pages" and metric.value == "1" for metric in app.metric)
+    assert serialized_reports == [result.audit_report]
+    assert audit_downloads == [audit_report_to_json(result.audit_report)]

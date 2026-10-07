@@ -56,18 +56,20 @@ class ValidationResult:
 
 @dataclass
 class AuditReport:
-    """Summary counts and decision only; no document text or raw PII values."""
+    """Aggregate audit data populated by the allowlisting audit generator."""
 
+    # Fresh audit correlation ID, not the source Document.document_id.
     document_id: str
     detected_count: int = 0
     redacted_count: int = 0
     counts_by_category: dict[str, int] = field(default_factory=dict)
     counts_by_risk: dict[RiskLevel, int] = field(default_factory=dict)
     validation: ValidationResult = field(default_factory=ValidationResult)
+    residual_count: int = 0
     # Per-page extraction status (native / ocr / failed, attempts, seconds); PDFs only.
     page_report: list[dict[str, Any]] = field(default_factory=list)
     # Detected entity counts by where the text lives (body, table, header, image, ...).
     counts_by_location: dict[str, int] = field(default_factory=dict)
-    # Embedded image OCR status (ocr / skipped_tiny / skipped_vector / failed) and warnings.
-    embedded_images: list[dict[str, Any]] = field(default_factory=list)
-    extraction_warnings: list[dict[str, str]] = field(default_factory=list)
+    # Aggregate embedded-image OCR status and warning count; no source names.
+    embedded_images: dict[str, int] = field(default_factory=dict)
+    extraction_warning_count: int = 0

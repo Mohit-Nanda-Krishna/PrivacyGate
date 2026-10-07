@@ -487,27 +487,13 @@ if "pipeline_result" in st.session_state and st.session_state["pipeline_result"]
 
     with tab_audit:
         st.subheader("Security & Privacy Audit Summary")
-        audit_dict = {
-            "document_id": audit.document_id,
-            "filename": doc.filename,
-            "detected_count": audit.detected_count,
-            "redacted_count": audit.redacted_count,
-            "counts_by_category": dict(audit.counts_by_category),
-            "counts_by_risk": dict(audit.counts_by_risk),
-            "validation": {
-                "status": audit.validation.status,
-                "reason": audit.validation.reason,
-                "residual_count": len(audit.validation.residual_entities),
-                "passes_executed": passes_executed,
-            },
-        }
-        audit_json = json.dumps(audit_dict, indent=2)
+        audit_json = audit_report_to_json(audit)
         st.json(audit_json)
 
         st.download_button(
             label="📥 Export Audit Report (JSON)",
             data=audit_json,
-            file_name=f"audit_report_{doc.document_id}.json",
+            file_name=f"audit_report_{audit.document_id}.json",
             mime="application/json",
         )
 
