@@ -14,9 +14,11 @@ from privacygate.detection.merger import merge_entities
 from privacygate.detection.names import (
     DEFAULT_ALLOWLIST,
     NAME_WITH_INITIAL,
+    ROLE_LABEL,
     NameRegistry,
     build_name_registry,
     clean_ner_entity,
+    role_context_names,
     sweep_names,
 )
 from privacygate.detection.presidio_detector import (
@@ -101,6 +103,53 @@ def _header_phone_entities(blocks: list[ContentBlock]) -> list[PIIEntity]:
     return entities
 
 
+_INLINE_ROLE = re.compile(
+    r"\b(?:created by|prepared by|led by|attested by|signed by|reviewed by|owner|author\(s\)|authors?|"
+    r"client contact|contact)\s*[:\-]?\s*(?=[A-Z])",
+    re.IGNORECASE,
+)
+
+
+def _role_context(blocks: list[ContentBlock], allowlist: frozenset[str]) -> tuple[set[str], list[PIIEntity]]:
+    """Blocks that hold people, and the names in them.
+
+    A table cell is a role context when its column header (row 1) or its row
+    label (column 1 of the same row) is a role word such as "Users",
+    "Author(s)" or "Created by". Elsewhere only the text right after an inline
+    label ("Created by Zelda Quark", "Owner: ...") counts.
+    """
+    cells = {}
+    for block in blocks:
+        key = _table_key(block)
+        if key is not None:
+            cells[(key, block.metadata["row_number"], block.metadata["column_number"])] = block.text
+    role_blocks: set[str] = set()
+    entities: list[PIIEntity] = []
+    for block in blocks:
+        key = _table_key(block)
+        if key is not None:
+            row, column = block.metadata["row_number"], block.metadata["column_number"]
+            header = cells.get((key, 1, column), "") if row > 1 else ""
+            label = cells.get((key, row, 1), "") if column > 1 else ""
+            # Row labels are short ("Author(s)", "Peer Reviewer"); long cells are content, not labels.
+            short_label = label.strip().rstrip(":")
+            if ROLE_LABEL.search(header) or (len(short_label) <= 30 and ROLE_LABEL.search(short_label)):
+                found = role_context_names(block, allowlist)
+                if found:
+                    role_blocks.add(block.block_id)
+                    entities.extend(found)
+            continue
+        for label in _INLINE_ROLE.finditer(block.text):
+            tail = ContentBlock(block.block_id, block.text[:label.end() + 60], page_number=block.page_number,
+                                slide_number=block.slide_number, paragraph_number=block.paragraph_number,
+                                extraction_method=block.extraction_method, metadata=block.metadata)
+            for entity in role_context_names(tail, allowlist):
+                if entity.start == label.end():
+                    role_blocks.add(block.block_id)
+                    entities.append(make_entity(block, "PERSON", entity.start, entity.end, 0.8, entity.detector))
+    return role_blocks, entities
+
+
 def detect_pii_with_registry(
     document: Document, allowlist: frozenset[str] | set[str] | None = None,
 ) -> tuple[list[PIIEntity], NameRegistry]:
@@ -130,7 +179,8 @@ def detect_pii_with_registry(
             for match in NAME_WITH_INITIAL.finditer(block.text):
                 candidate = make_entity(block, "PERSON", *match.span(), 0.8, "pattern:name_with_initial")
                 findings[block.block_id].extend(clean_ner_entity(block, candidate, allowed))
-        for entity in _header_phone_entities(blocks) + _stitched_country_codes(blocks, findings):
+        role_blocks, role_names = _role_context(blocks, allowed)
+        for entity in _header_phone_entities(blocks) + _stitched_country_codes(blocks, findings) + role_names:
             findings[entity.block_id].append(entity)
 
         texts = {block.block_id: block.text for block in blocks}
@@ -146,7 +196,7 @@ def detect_pii_with_registry(
         identifier_blocks = [
             block_id for block_id, found in findings.items()
             if any(entity.entity_type in _IDENTIFIER_TYPES for entity in found)
-        ]
+        ] + sorted(role_blocks)
         registry = build_name_registry(blocks, person_spans, allowed, identifier_blocks)
         for block_id, found in findings.items():
             findings[block_id] = [
