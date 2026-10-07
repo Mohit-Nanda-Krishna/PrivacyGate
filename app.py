@@ -18,6 +18,8 @@ from privacygate.audit import audit_report_to_json
 from privacygate.detection import DetectionError
 from privacygate.extraction import ExtractionError
 from privacygate.models import PIIEntity
+from privacygate.derivatives import REVIEW_WATERMARK, redact_pdf
+from privacygate.llm import GateRefusedError, build_llm_payload, mock_llm_call
 from privacygate.pipeline import run_pipeline
 from privacygate.risk.classifier import RISK_MAPPING
 
@@ -222,14 +224,24 @@ if selected_name is not None:
                     file_to_process = temp_path
                 else:
                     file_to_process = sample_files[selected_sample]
+                st.session_state.pop("redacted_pdf", None)
+                st.session_state.pop("mock_llm_reply", None)
                 result = run_pipeline(file_to_process, max_passes=max_passes)
                 result.document.filename = result.sanitized_document.filename = selected_name
+                if Path(selected_name).suffix.lower() == ".pdf":
+                    # Built now because uploaded bytes are deleted right after processing.
+                    approved = result.validation.status == "APPROVED"
+                    st.session_state["redacted_pdf"] = redact_pdf(
+                        file_to_process, result.document, result.sanitized_document,
+                        watermark=None if approved else REVIEW_WATERMARK,
+                    )
                 st.session_state["pipeline_result"] = result
             except Exception as exc:
                 # Project errors carry vetted messages; anything else may quote document text.
                 detail = f": {exc}" if isinstance(exc, (ExtractionError, DetectionError)) else ""
                 st.error(f"Processing failed closed: {type(exc).__name__}{detail}")
                 st.session_state["pipeline_result"] = None
+                st.session_state.pop("redacted_pdf", None)
             finally:
                 if temp_path is not None:
                     temp_path.unlink(missing_ok=True)
@@ -264,13 +276,61 @@ if "pipeline_result" in st.session_state and st.session_state["pipeline_result"]
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    tab_summary, tab_findings, tab_redaction, tab_audit, tab_benchmarks = st.tabs([
+    tab_summary, tab_findings, tab_redaction, tab_audit, tab_benchmarks, tab_ai = st.tabs([
         "📋 1. Extraction Summary",
         "🔍 2. PII Findings & Analytics",
         "✂️ 3. Semantic Redaction Preview",
         "📊 4. Audit Report & Export",
         "📈 5. Quality Benchmark",
+        "🤖 6. What the AI Model Sees",
     ])
+
+    with tab_ai:
+        st.subheader("What the AI Model Sees")
+        payload = build_llm_payload(sanitized)
+        approved = validation.status == "APPROVED"
+        a1, a2, a3 = st.columns(3)
+        a1.metric("Characters", f"{len(payload):,}")
+        a2.metric("Pseudonym tokens", len(re.findall(r"\[[A-Z][A-Z_]*(?:_\d+)?\]", payload)))
+        a3.metric("Gate", validation.status)
+        st.caption(
+            "This is the exact sanitized text a downstream model would receive. "
+            + ("The gate approved it." if approved else
+               "The gate BLOCKED this document, so it would not be sent; shown here for review only.")
+        )
+        st.text_area("Sanitized payload", payload, height=300, disabled=True)
+
+        st.markdown("#### Mock model call")
+        st.caption("Local mock only: no network access and no API keys. It refuses unless the gate approved.")
+        instruction = st.text_input("Instruction for the model", value="Summarise the key risks in this document.")
+        if st.button("Send to mock LLM", disabled=False):
+            try:
+                st.session_state["mock_llm_reply"] = mock_llm_call(sanitized, validation, instruction).text
+            except GateRefusedError as refusal:
+                st.session_state["mock_llm_reply"] = None
+                st.error(str(refusal))
+        if st.session_state.get("mock_llm_reply"):
+            st.success(st.session_state["mock_llm_reply"])
+
+        masked = st.session_state.get("redacted_pdf")
+        if masked is not None and doc.file_type == "pdf":
+            st.markdown("#### Redacted PDF")
+            st.caption(
+                f"{masked.page_count} pages (same as the source), {masked.boxes} masked areas, "
+                f"document metadata removed. Masks follow the final sanitized text; scanned pages "
+                f"have the image pixels under each mask destroyed."
+                + (f" {masked.unlocated} replaced spans could not be placed on the page." if masked.unlocated else "")
+            )
+            pdf_name = f"{Path(doc.filename).stem}_redacted.pdf"
+            if approved:
+                st.download_button("⬇️ Download redacted PDF", masked.data, file_name=pdf_name,
+                                   mime="application/pdf")
+            else:
+                st.warning("The gate blocked this document: the masked copy may still contain personal data.")
+                if st.checkbox("I understand: download a watermarked review copy for internal review only"):
+                    st.download_button("⬇️ Download review copy (not approved)", masked.data,
+                                       file_name=f"{Path(doc.filename).stem}_review_copy.pdf",
+                                       mime="application/pdf")
 
     with tab_summary:
         st.subheader("Document Extraction Summary")
