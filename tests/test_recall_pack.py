@@ -230,6 +230,44 @@ def test_uncorroborated_name_pairs_are_not_swept():
     assert len(build_name_registry(blocks, [("b0", 0, 14)], identifier_blocks=["b0"])) == 1
 
 
+def _cell(block_id, text, row, column, table=1):
+    return ContentBlock(block_id, text, metadata={"kind": "table_cell", "table_number": table,
+                                                  "row_number": row, "column_number": column})
+
+
+def test_role_header_column_names_including_two_letter_initials():
+    doc = Document("d", "s.docx", "docx", blocks=[
+        _cell("h1", "DESCRIPTION", 1, 1), _cell("h2", "USERS", 1, 2),
+        _cell("c1", "Reviews workflows", 2, 1), _cell("c2", "Quilla Marsh\nXT Fenwick\nEdit", 2, 2),
+        ContentBlock("img", "Created by Quilla Marsh 10/31/2025 Quilla Marsh 10/31/2025",
+                     extraction_method="embedded_image_ocr", metadata={"image_name": "image1.png"}),
+        ContentBlock("other", "Fenwick approved; Vendor Risk reviewed."),
+    ])
+    found = _found(doc, detect_pii(doc))
+    assert {("PERSON", "Quilla Marsh"), ("PERSON", "XT Fenwick"), ("PERSON", "Fenwick")} <= found
+    # Swept into image text even though NER never tagged it there.
+    texts = {b.block_id: b.text for b in doc.blocks}
+    image_hits = [e for e in detect_pii(doc) if e.block_id == "img" and e.entity_type == "PERSON"]
+    assert len(image_hits) == 2
+    assert ("PERSON", "Vendor Risk") not in found and ("PERSON", "Edit") not in found
+
+
+def test_role_row_label_and_inline_label():
+    doc = Document("d", "s.docx", "docx", blocks=[
+        _cell("l", "Author(s)", 1, 1), _cell("v", "Ravindra Osterholt, Pell Grantham", 1, 2),
+        ContentBlock("p", "Prepared by Ismay Corvell for the review."),
+    ])
+    found = _found(doc, detect_pii(doc))
+    assert {("PERSON", "Ravindra Osterholt"), ("PERSON", "Pell Grantham"), ("PERSON", "Ismay Corvell")} <= found
+
+
+def test_role_words_do_not_make_business_terms_names():
+    doc = Document("d", "s.docx", "docx", blocks=[
+        _cell("h", "Owner", 1, 1), _cell("c", "Vendor Risk Management Group", 2, 1),
+    ])
+    assert not [e for e in detect_pii(doc) if e.entity_type == "PERSON"]
+
+
 def test_name_with_initial_shape_and_split_country_code():
     doc = Document("d", "s.pdf", "pdf", blocks=[
         ContentBlock("b0", "Roster: Ottoline V. Quarrington MER-IN-4471", page_number=1),

@@ -67,6 +67,31 @@ _EMAIL = re.compile(r"(?<![\w.%+-])([A-Za-z0-9._%+-]+)@[A-Za-z0-9-]+(?:\.[A-Za-z
 _HONORIFIC = re.compile(r"\b(?:Mr|Ms|Mrs|Miss|Mx|Dr|Prof)\.?\s+([A-Z][a-z]+(?:-[A-Z][a-z]+)?)\b")
 
 
+# Labels that say "the value here is a person": table headers ("Users"), row labels
+# ("Author(s)") or inline prefixes ("Created by").
+ROLE_LABEL = re.compile(
+    r"\b(?:authors?|author\(s\)|(?:peer |qa )?reviewers?|owners?|created by|modified by|updated by|"
+    r"(?:client )?contacts?|users?|members?|approvers?|assignees?|managers?|attested by|signed by|"
+    r"prepared by|led by|chair(?:ed by)?|employees?)\b",
+    re.IGNORECASE,
+)
+# Within a role context, "Daniela Figueroa", "KC Burney" or "Priya S. Nair" are names.
+_ROLE_NAME = re.compile(
+    r"(?<![\w.-])(?:[A-Z]{2}|[A-Z][a-z]+(?:-[A-Z][a-z]+)?)(?:[ \t]+[A-Z]\.)?[ \t]+[A-Z][a-z]+(?:-[A-Z][a-z]+)?(?![\w-])"
+)
+
+
+def role_context_names(block: ContentBlock, allowlist: frozenset[str]) -> list[PIIEntity]:
+    """PERSON spans in a block known to hold people (detector "context:role_name")."""
+    entities = []
+    for match in _ROLE_NAME.finditer(block.text):
+        words = [w for w in re.findall(r"[A-Za-z]+(?:-[A-Za-z]+)?", match.group()) if len(w) > 1]
+        if any(_is_allowed_word(word, allowlist) for word in words) or ROLE_LABEL.search(match.group()):
+            continue
+        entities.append(make_entity(block, "PERSON", *match.span(), 0.8, "context:role_name"))
+    return entities
+
+
 def _is_allowed_word(word: str, allowlist: frozenset[str]) -> bool:
     return word.strip(".'’").lower() in allowlist
 
