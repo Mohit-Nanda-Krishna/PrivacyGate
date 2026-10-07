@@ -68,8 +68,9 @@ To include a row, change `uncertain` to blank. To drop one, delete the row.
 ## Scoring rules
 
 - **Occurrence matching** ignores case, spaces and punctuation and respects word boundaries.
-  When a letter-heavy value (a name or e-mail) has no exact match on its page, it can match
-  OCR-damaged text fuzzily (similarity ≥ 0.85). Digit-heavy values never match fuzzily.
+  Letter-heavy values (names, e-mails) also match OCR-damaged text fuzzily (similarity ≥ 0.85,
+  word-bounded) anywhere their exact form does not already match, so `Szewezyk` is found on a
+  page that also prints `Szewczyk`. Digit-heavy values never match fuzzily.
 - **Not extracted:** a row whose value is not found on its page counts as one missed
   occurrence. This is how image-only content that the pipeline never extracts shows up.
 - **Recall** = occurrences overlapped by any detection ÷ all occurrences.

@@ -784,9 +784,9 @@ Cadence_Group_Risk_Management_Policy__v6.0.pdf,22,prose,DATE_OF_BIRTH,14 July 19
 Cadence_Group_Risk_Management_Policy__v6.0.pdf,22,prose,GOVERNMENT_ID,TK4820913,,
 Cadence_Group_Risk_Management_Policy__v6.0.pdf,22,prose,ADDRESS,"1180 Ashwood Lane, Apartment 4C, Jersey City, NJ 07302",,
 Cadence_Group_Risk_Management_Policy__v6.0.pdf,23,prose,PERSON,Prieto-Ramos,,
-Cadence_Group_Risk_Management_Policy__v6.0.pdf,23,prose,FINANCIAL_ACCOUNT,card ending 2218,,
+Cadence_Group_Risk_Management_Policy__v6.0.pdf,23,prose,FINANCIAL_ACCOUNT,2218,,card ending 2218 (digits only are PII)
 Cadence_Group_Risk_Management_Policy__v6.0.pdf,23,prose,ADDRESS,"2214 Palmetto Crescent, Coral Gables, FL 33134",,
-Cadence_Group_Risk_Management_Policy__v6.0.pdf,23,prose,FINANCIAL_ACCOUNT,account ending 7741,,
+Cadence_Group_Risk_Management_Policy__v6.0.pdf,23,prose,FINANCIAL_ACCOUNT,7741,,account ending 7741 (digits only are PII)
 Cadence_Group_Risk_Management_Policy__v6.0.pdf,23,prose,GOVERNMENT_ID,8827,,16.8 correspondence
 Cadence_Group_Risk_Management_Policy__v6.0.pdf,23,prose,DATE_OF_BIRTH,3 August 1996,,
 Cadence_Group_Risk_Management_Policy__v6.0.pdf,7,prose,ADDRESS,"88 Willowbank Court, Hoboken, NJ 07030",,

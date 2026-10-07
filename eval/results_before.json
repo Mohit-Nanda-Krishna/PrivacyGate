@@ -8,7 +8,7 @@
     {
       "file": "Cadence_Financial_Group_Organizational_Pack.pptx",
       "ground_truth_rows": 122,
-      "seconds": 3.8,
+      "seconds": 4.8,
       "blocks_by_method": {
         "pptx_native": 373
       },
@@ -102,7 +102,7 @@
     {
       "file": "Cadence_Group_Risk_Management_Policy__v6.0.pdf",
       "ground_truth_rows": 870,
-      "seconds": 140.2,
+      "seconds": 148.1,
       "blocks_by_method": {
         "ocr": 1880
       },
@@ -110,16 +110,16 @@
       "gate_multi_pass": "APPROVED",
       "structure_retention": 1.0,
       "overall": {
-        "occurrences": 925,
-        "detected": 576,
-        "residual": 379,
+        "occurrences": 934,
+        "detected": 579,
+        "residual": 388,
         "detections": 700,
-        "true_positives": 559,
-        "false_positives": 122,
-        "recall": 0.6227,
-        "precision": 0.8209,
-        "f1": 0.7082,
-        "residual_rate": 0.4097
+        "true_positives": 563,
+        "false_positives": 121,
+        "recall": 0.6199,
+        "precision": 0.8231,
+        "f1": 0.7072,
+        "residual_rate": 0.4154
       },
       "by_type": {
         "ADDRESS": {
@@ -147,16 +147,16 @@
           "residual_rate": 1.0
         },
         "EMAIL": {
-          "occurrences": 161,
-          "detected": 140,
-          "residual": 22,
+          "occurrences": 166,
+          "detected": 144,
+          "residual": 25,
           "detections": 160,
-          "true_positives": 141,
-          "false_positives": 2,
-          "recall": 0.8696,
-          "precision": 0.986,
-          "f1": 0.9241,
-          "residual_rate": 0.1366
+          "true_positives": 145,
+          "false_positives": 1,
+          "recall": 0.8675,
+          "precision": 0.9932,
+          "f1": 0.9261,
+          "residual_rate": 0.1506
         },
         "EMPLOYEE_ID": {
           "occurrences": 198,
@@ -219,16 +219,16 @@
           "residual_rate": null
         },
         "PERSON": {
-          "occurrences": 415,
-          "detected": 300,
-          "residual": 124,
+          "occurrences": 419,
+          "detected": 299,
+          "residual": 130,
           "detections": 342,
           "true_positives": 280,
           "false_positives": 62,
-          "recall": 0.7229,
+          "recall": 0.7136,
           "precision": 0.8187,
-          "f1": 0.7678,
-          "residual_rate": 0.2988
+          "f1": 0.7626,
+          "residual_rate": 0.3103
         },
         "PHONE": {
           "occurrences": 126,
@@ -257,23 +257,23 @@
           "residual_rate": 0.8333
         },
         "ocr": {
-          "occurrences": 841,
-          "detected": 560,
-          "residual": 309,
+          "occurrences": 850,
+          "detected": 563,
+          "residual": 318,
           "detections": 0,
           "true_positives": 0,
           "false_positives": 0,
-          "recall": 0.6659,
+          "recall": 0.6624,
           "precision": null,
           "f1": null,
-          "residual_rate": 0.3674
+          "residual_rate": 0.3741
         }
       },
-      "not_extracted": 63,
-      "fuzzy_matches": 17,
+      "not_extracted": 69,
+      "fuzzy_matches": 30,
       "uncertain_rows": 20,
       "false_positive_types": {
-        "EMAIL": 2,
+        "EMAIL": 1,
         "LOCATION": 36,
         "PERSON": 62,
         "PHONE": 22
@@ -282,7 +282,7 @@
     {
       "file": "Cadence_TPRM_Training.docx",
       "ground_truth_rows": 26,
-      "seconds": 33.4,
+      "seconds": 32.7,
       "blocks_by_method": {
         "docx_native": 1277
       },
@@ -363,15 +363,15 @@
     }
   ],
   "total": {
-    "occurrences": 1083,
-    "detected": 681,
-    "residual": 432,
+    "occurrences": 1092,
+    "detected": 684,
+    "residual": 441,
     "detections": 1048,
-    "true_positives": 658,
-    "false_positives": 371,
-    "recall": 0.6288,
-    "precision": 0.6395,
-    "f1": 0.6341,
-    "residual_rate": 0.3989
+    "true_positives": 662,
+    "false_positives": 370,
+    "recall": 0.6264,
+    "precision": 0.6415,
+    "f1": 0.6338,
+    "residual_rate": 0.4038
   }
 }

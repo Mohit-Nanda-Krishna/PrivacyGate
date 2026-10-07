@@ -294,40 +294,49 @@ def find_value(text: str, value: str, fuzzy: bool = True) -> list[tuple[int, int
     """Return (start, end, is_fuzzy) spans of value in text.
 
     Exact matching ignores case, whitespace and punctuation and requires word
-    boundaries. Only when there is no exact match, values that are mostly
-    letters (names, e-mail addresses) may match OCR-damaged text fuzzily.
-    Digit-heavy values never match fuzzily: 555-0147 must not match 555-0174.
+    boundaries. Values that are mostly letters (names, e-mail addresses) also
+    match OCR-damaged text fuzzily outside the exact hits, so "Szewezyk" on a
+    page that also prints "Szewczyk" is still found. Digit-heavy values never
+    match fuzzily: 555-0147 must not match 555-0174.
     """
     norm_text, index = _normalize(text)
     norm_value, _ = _normalize(value)
     if not norm_value:
         return []
     hits: list[tuple[int, int, bool]] = []
+    exact_norm: list[tuple[int, int]] = []
     position = 0
     while (found := norm_text.find(norm_value, position)) >= 0:
         start, end = index[found], index[found + len(norm_value) - 1] + 1
         if _bounded(text, start, end):
             hits.append((start, end, False))
+            exact_norm.append((found, found + len(norm_value)))
         position = found + 1
     letters = sum(character.isalpha() for character in norm_value)
-    if hits or not fuzzy or len(norm_value) < 6 or letters < 0.6 * len(norm_value):
+    if not fuzzy or len(norm_value) < 6 or letters < 0.6 * len(norm_value):
         return hits
 
+    matcher = SequenceMatcher(None, autojunk=False)
+    matcher.set_seq2(norm_value)  # seq2 is cached by SequenceMatcher
     candidates: list[tuple[float, int, int]] = []
     for size in range(max(1, len(norm_value) - 2), len(norm_value) + 3):
         for offset in range(0, len(norm_text) - size + 1):
-            matcher = SequenceMatcher(None, norm_value, norm_text[offset:offset + size], autojunk=False)
+            matcher.set_seq1(norm_text[offset:offset + size])
             if matcher.real_quick_ratio() < FUZZY_THRESHOLD or matcher.quick_ratio() < FUZZY_THRESHOLD:
                 continue
             ratio = matcher.ratio()
-            if ratio >= FUZZY_THRESHOLD:
+            if ratio >= FUZZY_THRESHOLD and ratio < 1.0:
                 candidates.append((ratio, offset, offset + size))
-    taken: list[tuple[int, int]] = []
+    taken: list[tuple[int, int]] = list(exact_norm)
     for _, low, high in sorted(candidates, key=lambda item: (-item[0], item[1])):
+        start, end = index[low], index[high - 1] + 1
+        # Like exact hits, fuzzy hits must not start or end inside a word.
+        if not _bounded(text, start, end):
+            continue
         if any(low < other_high and high > other_low for other_low, other_high in taken):
             continue
         taken.append((low, high))
-        hits.append((index[low], index[high - 1] + 1, True))
+        hits.append((start, end, True))
     return sorted(hits)
 
 
