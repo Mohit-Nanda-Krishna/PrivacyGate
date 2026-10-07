@@ -9,7 +9,7 @@ from privacygate.audit import generate_audit_report
 from privacygate.detection import detect_pii_with_registry
 from privacygate.extraction import extract_document
 from privacygate.models import AuditReport, Document, PIIEntity, ValidationResult
-from privacygate.redaction import redact_document
+from privacygate.redaction import PseudonymSession, redact_document
 from privacygate.risk import classify_risks
 from privacygate.validation import validate_privacy
 from privacygate.validation.privacy_gate import found_by_independent_checks
@@ -56,10 +56,13 @@ def run_pipeline(file_path: str | Path, max_passes: int = 1) -> PipelineResult:
     classify_risks(entities)
 
     # 4. Semantic Redaction
-    sanitized_doc, redactions = redact_document(document, entities)
+    pseudonyms = PseudonymSession(name_registry=name_registry)
+    sanitized_doc, redactions = redact_document(document, entities, session=pseudonyms)
 
     # 5. Secondary Privacy Scan
-    validation = validate_privacy(sanitized_doc, name_registry=name_registry)
+    validation = validate_privacy(
+        sanitized_doc, name_registry=name_registry, issued_tokens=pseudonyms.issued_tokens,
+    )
     passes_executed = 1
     independent_hit = found_by_independent_checks(validation)
 
@@ -69,10 +72,12 @@ def run_pipeline(file_path: str | Path, max_passes: int = 1) -> PipelineResult:
             passes_executed += 1
             classify_risks(validation.residual_entities)
             sanitized_doc, extra_redactions = redact_document(
-                sanitized_doc, validation.residual_entities
+                sanitized_doc, validation.residual_entities, session=pseudonyms,
             )
             redactions.extend(extra_redactions)
-            validation = validate_privacy(sanitized_doc, name_registry=name_registry)
+            validation = validate_privacy(
+                sanitized_doc, name_registry=name_registry, issued_tokens=pseudonyms.issued_tokens,
+            )
             independent_hit = independent_hit or found_by_independent_checks(validation)
             if validation.status == "APPROVED":
                 break

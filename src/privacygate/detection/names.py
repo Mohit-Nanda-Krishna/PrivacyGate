@@ -117,7 +117,7 @@ def clean_ner_entity(
     return results
 
 
-@dataclass
+@dataclass(repr=False)
 class _Person:
     first: str | None
     last: str
@@ -129,7 +129,7 @@ class _Person:
 class NameRegistry:
     """People named in one document, with a compiled sweep pattern."""
 
-    people: list[_Person] = field(default_factory=list)
+    people: list[_Person] = field(default_factory=list, repr=False)
     _pattern: re.Pattern[str] | None = field(default=None, repr=False)
 
     def __len__(self) -> int:
@@ -149,10 +149,34 @@ class NameRegistry:
             return []
         return [match.span() for match in self.pattern.finditer(text)]
 
+    def resolve_person(self, value: str) -> int | None:
+        """Return a per-registry index only when one person matches the whole value."""
+        tokens = _TOKEN.findall(value)
+        observed_middles = tuple(tokens[1:-1]) if len(tokens) >= 3 else ()
+        matches = [
+            index for index, person in enumerate(self.people)
+            if any(re.fullmatch(pattern, value) for pattern in _variant_patterns(person))
+            and _compatible_middles(person.middles, observed_middles)
+        ]
+        return matches[0] if len(matches) == 1 else None
+
 
 def _flex(word: str) -> str:
     # Allow OCR/PDF spacing around hyphens: "Okonkwo-Bell", "Okonkwo - Bell".
     return r"\s?-\s?".join(re.escape(part) for part in word.split("-"))
+
+
+def _compatible_middles(known: tuple[str, ...], observed: tuple[str, ...]) -> bool:
+    """Reject contradictory middle evidence; missing or initial-only evidence stays ambiguous."""
+    for left, right in zip(known, observed):
+        left, right = left.rstrip(".").casefold(), right.rstrip(".").casefold()
+        if left == right:
+            continue
+        if not left or not right or left[0] != right[0]:
+            return False
+        if len(left) > 1 and len(right) > 1:
+            return False
+    return True
 
 
 def _variant_patterns(person: _Person) -> list[str]:
@@ -203,12 +227,13 @@ def build_name_registry(
     email_names = _email_names(texts.values())
     honorific_surnames = {m.group(1).replace("-", "").lower() for t in texts.values() for m in _HONORIFIC.finditer(t)}
     with_identifiers = set(identifier_blocks or ())
-    people: dict[tuple[str | None, str], _Person] = {}
+    people: dict[tuple[str | None, str, tuple[str, ...]], _Person] = {}
 
     def add(first: str | None, last: str, middles: tuple[str, ...] = (), initial: str | None = None) -> None:
         if last.lower() in allowlist or len(last) < 2:
             return
-        key = (first.lower() if first else None, last.lower())
+        key = (first.lower() if first else None, last.lower(),
+               tuple(middle.rstrip(".").casefold() for middle in middles))
         if key not in people:
             people[key] = _Person(first, last, middles, initial)
 

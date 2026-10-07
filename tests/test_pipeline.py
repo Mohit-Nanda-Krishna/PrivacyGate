@@ -48,10 +48,10 @@ def test_pipeline_end_to_end_with_pii(tmp_path: Path) -> None:
 
     # 4. Redaction checks
     sanitized_text = " ".join(b.text for b in pipeline_result.sanitized_document.blocks)
-    assert "[EMPLOYEE_ID]" in sanitized_text
-    assert "[EMAIL]" in sanitized_text
-    assert "[GOVERNMENT_ID]" in sanitized_text
-    assert "[ACCOUNT_NUMBER]" in sanitized_text
+    assert "[EMPLOYEE_ID_001]" in sanitized_text
+    assert "[EMAIL_001]" in sanitized_text
+    assert "[GOVERNMENT_ID_001]" in sanitized_text
+    assert "[ACCOUNT_NUMBER_001]" in sanitized_text
     assert "123-45-6789" not in sanitized_text
     assert "EMP-83921" not in sanitized_text
 

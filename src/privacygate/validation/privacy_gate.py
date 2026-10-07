@@ -2,27 +2,28 @@
 
 from __future__ import annotations
 
-import re
-
 from privacygate.detection import detect_pii, merge_entities
 from privacygate.detection.names import NameRegistry
 from privacygate.models import Document, PIIEntity, ValidationResult
+from privacygate.validation.placeholders import intentional_placeholder_spans
 from privacygate.validation.residual_checks import GATE_DETECTOR_PREFIX, independent_residual_checks
 
-# Regex matching our standard placeholder patterns, e.g. [PERSON], [EMAIL], [PII]
-PLACEHOLDER_PATTERN = re.compile(r"\[[A-Z_]+\]")
 
-
-def _is_placeholder_span(text: str, start: int, end: int) -> bool:
+def _is_placeholder_span(
+    text: str, start: int, end: int, issued_tokens: frozenset[str] = frozenset(),
+) -> bool:
     """Return True if the span [start, end) matches an applied semantic placeholder."""
-    span_text = text[start:end].strip()
-    return bool(PLACEHOLDER_PATTERN.fullmatch(span_text))
+    return any(
+        placeholder_start <= start and end <= placeholder_end
+        for placeholder_start, placeholder_end in intentional_placeholder_spans(text, issued_tokens)
+    )
 
 
 def validate_privacy(
     sanitized_doc: Document,
     confidence_threshold: float = 0.40,
     name_registry: NameRegistry | None = None,
+    issued_tokens: frozenset[str] = frozenset(),
 ) -> ValidationResult:
     """Perform secondary privacy scan on sanitized document.
 
@@ -70,12 +71,12 @@ def validate_privacy(
 
             # Check if this detection is merely detecting one of our intentional placeholders
             block_text = blocks_by_id.get(entity.block_id, "")
-            if _is_placeholder_span(block_text, entity.start, entity.end):
+            if _is_placeholder_span(block_text, entity.start, entity.end, issued_tokens):
                 continue
 
             residual_entities.append(entity)
 
-        independent = independent_residual_checks(sanitized_doc.blocks, name_registry)
+        independent = independent_residual_checks(sanitized_doc.blocks, name_registry, issued_tokens)
         # Merge overlapping residuals so a later redaction pass can splice them safely;
         # merged detector provenance keeps the "gate:" marker.
         residual_entities = merge_entities(residual_entities + independent)

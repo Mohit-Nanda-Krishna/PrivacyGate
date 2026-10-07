@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Sequence
+import unicodedata
+
+from privacygate.detection.names import NameRegistry
 from privacygate.models import ContentBlock, Document, PIIEntity
 
 
@@ -33,24 +36,68 @@ def get_placeholder(entity_type: str) -> str:
     return f"[{canonical_type}]"
 
 
-def redact_text(text: str, entities: Sequence[PIIEntity]) -> tuple[str, list[RedactionRecord]]:
+class PseudonymSession:
+    """Temporary identity assignments for one pipeline run; never serialize."""
+
+    __slots__ = ("_name_registry", "_tokens_by_identity", "_counters", "_issued_tokens")
+
+    def __init__(self, name_registry: NameRegistry | None = None) -> None:
+        self._name_registry = name_registry
+        self._tokens_by_identity: dict[tuple[str, str, str | int], str] = {}
+        self._counters: dict[str, int] = {}
+        self._issued_tokens: set[str] = set()
+
+    def __repr__(self) -> str:
+        return f"PseudonymSession(issued={len(self._issued_tokens)})"
+
+    @property
+    def issued_tokens(self) -> frozenset[str]:
+        """Only generated tokens leave the session for privacy validation."""
+        return frozenset(self._issued_tokens)
+
+    def placeholder_for(self, entity_type: str, value: str) -> str:
+        canonical_type = get_placeholder(entity_type)[1:-1]
+        normalized = unicodedata.normalize("NFC", value.strip())
+        person_index = self._name_registry.resolve_person(normalized) if (
+            canonical_type == "PERSON" and self._name_registry is not None
+        ) else None
+        if person_index is not None:
+            identity: tuple[str, str, str | int] = (canonical_type, "registry", person_index)
+        else:
+            if canonical_type == "EMAIL" and "@" in normalized:
+                local, domain = normalized.rsplit("@", 1)
+                normalized = f"{local}@{domain.casefold()}"
+            identity = (canonical_type, "literal", normalized)
+
+        token = self._tokens_by_identity.get(identity)
+        if token is None:
+            number = self._counters.get(canonical_type, 0) + 1
+            self._counters[canonical_type] = number
+            token = f"[{canonical_type}_{number:03d}]"
+            self._tokens_by_identity[identity] = token
+            self._issued_tokens.add(token)
+        return token
+
+
+def redact_text(
+    text: str, entities: Sequence[PIIEntity], session: PseudonymSession | None = None,
+) -> tuple[str, list[RedactionRecord]]:
     """Redact entities from a text string in reverse offset order to maintain index integrity."""
     if not text or not entities:
         return text, []
 
-    # Sort entities in descending order of start offset
-    # In case of equal start, sort by descending end
-    sorted_entities = sorted(entities, key=lambda e: (e.start, e.end), reverse=True)
+    # Assign in source order, then splice from the end to preserve offsets.
+    replacements = [
+        (entity, session.placeholder_for(entity.entity_type, text[entity.start:entity.end])
+         if session is not None else get_placeholder(entity.entity_type))
+        for entity in sorted(entities, key=lambda e: (e.start, e.end))
+        if 0 <= entity.start < entity.end <= len(text)
+    ]
 
     sanitized = text
     records: list[RedactionRecord] = []
 
-    for entity in sorted_entities:
-        # Bounds check
-        if entity.start < 0 or entity.end > len(text) or entity.start >= entity.end:
-            continue
-
-        placeholder = get_placeholder(entity.entity_type)
+    for entity, placeholder in reversed(replacements):
         # Splice sanitized string
         sanitized = sanitized[:entity.start] + placeholder + sanitized[entity.end:]
 
@@ -71,6 +118,7 @@ def redact_text(text: str, entities: Sequence[PIIEntity]) -> tuple[str, list[Red
 def redact_document(
     document: Document,
     entities: Sequence[PIIEntity],
+    session: PseudonymSession | None = None,
 ) -> tuple[Document, list[RedactionRecord]]:
     """Generate a sanitized Document replacing all detected PII with semantic placeholders.
 
@@ -87,7 +135,7 @@ def redact_document(
     for block in document.blocks:
         block_entities = by_block.get(block.block_id, [])
         if block_entities:
-            clean_text, records = redact_text(block.text, block_entities)
+            clean_text, records = redact_text(block.text, block_entities, session=session)
             all_records.extend(records)
         else:
             clean_text = block.text
