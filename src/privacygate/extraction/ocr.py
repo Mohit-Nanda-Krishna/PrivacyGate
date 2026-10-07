@@ -51,36 +51,42 @@ def _is_timeout(error: Exception) -> bool:
     return isinstance(error, RuntimeError) and "timeout" in str(error).lower()
 
 
-def recognize_image(image: Image.Image, page_number: int) -> tuple[list[ContentBlock], int]:
-    """OCR a rendered page; returns (blocks, attempts). Always closes the image.
+def run_ocr(image: Image.Image, label: str, dpi: int | None = OCR_DPI) -> tuple[dict, int]:
+    """Run Tesseract with one longer retry on timeout; returns (data, attempts).
 
-    A timeout is retried once with OCR_RETRY_TIMEOUT_SECONDS; other engine
-    failures are not retried. Safe to call from worker threads.
+    label names the source in errors ("page 3", "image image7.png"). Errors
+    never include Tesseract stderr, paths or recognized text. Does not close
+    the image. Safe to call from worker threads.
     """
     attempts = 0
-    try:
-        for timeout in (OCR_TIMEOUT_SECONDS, OCR_RETRY_TIMEOUT_SECONDS):
-            attempts += 1
-            try:
+    for timeout in (OCR_TIMEOUT_SECONDS, OCR_RETRY_TIMEOUT_SECONDS):
+        attempts += 1
+        try:
+            if dpi is None:
+                data = pytesseract.image_to_data(
+                    image, lang="eng", config="--psm 3",
+                    output_type=pytesseract.Output.DICT, timeout=timeout,
+                )
+            else:
                 data = _run_engine(image, timeout)
-                break
-            except pytesseract.TesseractNotFoundError:
-                raise OCRRequiredError(_missing_message(page_number)) from None
-            except Exception as error:
-                if _is_timeout(error) and timeout != OCR_RETRY_TIMEOUT_SECONDS:
-                    continue
-                # Never expose Tesseract stderr, paths, or recognized text in errors.
-                reason = "timed out after a retry" if _is_timeout(error) else "the engine failed"
-                raise ExtractionError(
-                    f"OCR failed for page {page_number} ({reason}). "
-                    "Check Tesseract and English language data."
-                ) from None
-    finally:
-        image.close()
-    return _blocks_from_data(data, page_number), attempts
+            return data, attempts
+        except pytesseract.TesseractNotFoundError:
+            raise OCRRequiredError(
+                f"{label[0].upper()}{label[1:]} requires OCR, but Tesseract is unavailable. "
+                "Install the Tesseract executable with English language data and add it to PATH."
+            ) from None
+        except Exception as error:
+            if _is_timeout(error) and timeout != OCR_RETRY_TIMEOUT_SECONDS:
+                continue
+            reason = "timed out after a retry" if _is_timeout(error) else "the engine failed"
+            raise ExtractionError(
+                f"OCR failed for {label} ({reason}). Check Tesseract and English language data."
+            ) from None
+    raise AssertionError("unreachable")
 
 
-def _blocks_from_data(data: dict, page_number: int) -> list[ContentBlock]:
+def group_lines(data: dict, label: str) -> list[tuple[tuple[int, int, int], str, list[int]]]:
+    """Group Tesseract words into (block/paragraph/line key, text, pixel bbox) lines."""
     try:
         lines = {}
         for index, text in enumerate(data["text"]):
@@ -95,22 +101,38 @@ def _blocks_from_data(data: dict, page_number: int) -> list[ContentBlock]:
             line["words"].append(text.strip())
             box = line["bbox"]
             line["bbox"] = [min(box[0], left), min(box[1], top), max(box[2], right), max(box[3], bottom)]
-
-        blocks = [
-            ContentBlock(
-                block_id=f"page_{page_number}_ocr_block_{order}",
-                text=" ".join(line["words"]), page_number=page_number,
-                extraction_method="ocr",
-                metadata={
-                    "block_order": order, "source_block_number": key[0],
-                    "source_paragraph_number": key[1], "source_line_number": key[2],
-                    "bbox_pixels": line["bbox"], "render_dpi": OCR_DPI,
-                },
-            )
-            for order, (key, line) in enumerate(lines.items(), start=1)
-        ]
+        return [(key, " ".join(line["words"]), line["bbox"]) for key, line in lines.items()]
     except Exception:
-        raise ExtractionError(f"OCR returned malformed output for page {page_number}.") from None
+        raise ExtractionError(f"OCR returned malformed output for {label}.") from None
+
+
+def recognize_image(image: Image.Image, page_number: int) -> tuple[list[ContentBlock], int]:
+    """OCR a rendered page; returns (blocks, attempts). Always closes the image.
+
+    A timeout is retried once with OCR_RETRY_TIMEOUT_SECONDS; other engine
+    failures are not retried. Safe to call from worker threads.
+    """
+    try:
+        data, attempts = run_ocr(image, f"page {page_number}")
+    finally:
+        image.close()
+    return _blocks_from_data(data, page_number), attempts
+
+
+def _blocks_from_data(data: dict, page_number: int) -> list[ContentBlock]:
+    blocks = [
+        ContentBlock(
+            block_id=f"page_{page_number}_ocr_block_{order}",
+            text=text, page_number=page_number,
+            extraction_method="ocr",
+            metadata={
+                "block_order": order, "source_block_number": key[0],
+                "source_paragraph_number": key[1], "source_line_number": key[2],
+                "bbox_pixels": bbox, "render_dpi": OCR_DPI,
+            },
+        )
+        for order, (key, text, bbox) in enumerate(group_lines(data, f"page {page_number}"), start=1)
+    ]
     if sum(character.isalnum() for block in blocks for character in block.text) < MIN_TEXT_CHARACTERS:
         raise ExtractionError(
             f"OCR produced unusable text for page {page_number} "

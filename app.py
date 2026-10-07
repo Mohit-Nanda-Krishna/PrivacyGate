@@ -297,6 +297,28 @@ if "pipeline_result" in st.session_state and st.session_state["pipeline_result"]
                 hide_index=True,
             )
 
+        image_report = doc.metadata.get("embedded_images") or []
+        if image_report:
+            st.markdown("#### Embedded Images")
+            image_statuses = [entry["status"] for entry in image_report]
+            i1, i2, i3 = st.columns(3)
+            i1.metric("Images OCR'd", image_statuses.count("ocr"))
+            i2.metric("Images Skipped", sum(s.startswith("skipped") for s in image_statuses))
+            i3.metric("Images Failed", image_statuses.count("failed"))
+            if "failed" in image_statuses:
+                st.error("OCR failed for some embedded images. Their content was not inspected, "
+                         "so the document cannot be approved.")
+            with st.expander("Embedded image details and warnings", expanded=False):
+                st.dataframe(
+                    pd.DataFrame([{
+                        "Image": entry["image"], "Status": entry["status"],
+                        "Text Lines": entry.get("lines"), "Note": entry.get("reason", ""),
+                    } for entry in image_report]),
+                    use_container_width=True, hide_index=True,
+                )
+                for warning in doc.metadata.get("extraction_warnings") or []:
+                    st.caption(f"⚠️ {warning['image']}: {warning['reason']}")
+
         st.markdown("#### Document Structure Blocks")
         block_records = []
         for b in doc.blocks[:50]:  # Limit display to first 50 blocks
@@ -343,6 +365,16 @@ if "pipeline_result" in st.session_state and st.session_state["pipeline_result"]
         m4.metric("Medium Risk", audit.counts_by_risk.get("MEDIUM", 0))
         avg_conf = (sum(e.confidence for e in entities) / len(entities)) if entities else 0.0
         m5.metric("Avg Confidence", f"{avg_conf:.0%}")
+
+        if audit.counts_by_location:
+            st.markdown("#### PII by Location")
+            st.dataframe(
+                pd.DataFrame(
+                    [{"Location": where, "Entities": count}
+                     for where, count in sorted(audit.counts_by_location.items(), key=lambda item: -item[1])]
+                ),
+                use_container_width=True, hide_index=True,
+            )
 
         if entities:
             st.markdown("#### Interactive Analytics")

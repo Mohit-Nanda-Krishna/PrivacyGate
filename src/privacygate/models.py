@@ -66,3 +66,8 @@ class AuditReport:
     validation: ValidationResult = field(default_factory=ValidationResult)
     # Per-page extraction status (native / ocr / failed, attempts, seconds); PDFs only.
     page_report: list[dict[str, Any]] = field(default_factory=list)
+    # Detected entity counts by where the text lives (body, table, header, image, ...).
+    counts_by_location: dict[str, int] = field(default_factory=dict)
+    # Embedded image OCR status (ocr / skipped_tiny / skipped_vector / failed) and warnings.
+    embedded_images: list[dict[str, Any]] = field(default_factory=list)
+    extraction_warnings: list[dict[str, str]] = field(default_factory=list)
