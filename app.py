@@ -19,6 +19,7 @@ from privacygate.detection import DetectionError
 from privacygate.extraction import ExtractionError
 from privacygate.models import PIIEntity
 from privacygate.pipeline import run_pipeline
+from privacygate.risk.classifier import RISK_MAPPING
 
 st.set_page_config(
     page_title="PrivacyGate — AI Privacy Firewall",
@@ -101,6 +102,12 @@ st.markdown(
 )
 
 # Helper highlighting functions
+UI_PLACEHOLDER_PATTERN = re.compile(
+    r"(?<!\[)\[(?:" + "|".join(re.escape(name) for name in sorted(set(RISK_MAPPING) | {"PII"}))
+    + r")(?:_(?P<number>[0-9]{3,}))?\](?!\])"
+)
+
+
 def highlight_original_block(text: str, block_entities: list[PIIEntity]) -> str:
     """Highlight detected PII in block text with color-coded risk pills."""
     if not block_entities:
@@ -136,7 +143,7 @@ def highlight_original_block(text: str, block_entities: list[PIIEntity]) -> str:
 
 
 def highlight_sanitized_block(text: str) -> str:
-    """Highlight semantic placeholders [PERSON], [EMAIL], etc. with emerald security badges."""
+    """Highlight known generic and numbered placeholders with emerald security badges."""
     escaped = html.escape(text)
 
     def _replace_placeholder(match: re.Match) -> str:
@@ -147,7 +154,7 @@ def highlight_sanitized_block(text: str) -> str:
             f'{token}</span>'
         )
 
-    highlighted = re.sub(r"\[[A-Z_]+\]", _replace_placeholder, escaped)
+    highlighted = UI_PLACEHOLDER_PATTERN.sub(_replace_placeholder, escaped)
     rendered = highlighted.replace("\n", "<br>")
     return f"<div style='margin-bottom: 12px;'>{rendered}</div>"
 
@@ -418,9 +425,17 @@ if "pipeline_result" in st.session_state and st.session_state["pipeline_result"]
 
     with tab_redaction:
         st.subheader("Semantic Context Redaction Preview")
-        st.caption("PII is replaced with standardized semantic placeholders ([PERSON], [EMAIL], [EMPLOYEE_ID], etc.) preserving surrounding business context.")
+        st.caption("Stable pseudonyms remove identity while preserving relationships for downstream AI.")
+        st.caption("Repeated references to the same detected identity reuse the same token, e.g. [PERSON_001].")
 
         sanitized_full_text = "\n\n".join(b.text for b in sanitized.blocks)
+        pseudonym_tokens = [
+            match.group(0) for match in UI_PLACEHOLDER_PATTERN.finditer(sanitized_full_text)
+            if match.group("number") is not None
+        ]
+        unique_metric, occurrences_metric = st.columns(2)
+        unique_metric.metric("Unique pseudonyms", len(set(pseudonym_tokens)))
+        occurrences_metric.metric("Pseudonym occurrences", len(pseudonym_tokens))
 
         preview_mode = st.radio(
             "Preview Mode:",
