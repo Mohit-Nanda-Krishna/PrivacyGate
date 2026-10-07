@@ -224,5 +224,48 @@ their canonical source locations while adding explicit OCR handling and tests.
 
 ### Next task
 
-**Phase 2 hybrid PII detection.** Add Presidio/spaCy, deterministic recognizers,
-and entity merging/source mapping against the existing canonical blocks.
+Phase 2 completed. Moving to Phase 3: Redaction, Risk Classification & Privacy Gate.
+
+## Phase 2 - Hybrid PII Detection Engine (2026-10-07)
+
+### Completed
+
+- Implemented structured regex detector in `detection/regex_detector.py` supporting
+  RFC emails, US/international phone numbers, validated IPv4 addresses, US SSNs with
+  invalid-prefix filtering, IBAN numbers, and credit cards with full Luhn checksum verification.
+- Implemented configurable enterprise recognizers in `detection/custom_recognizers.py`
+  with patterns for Employee IDs (`EMP-XXXX`, `Employee ID: ...`), Client IDs (`C-XXXXX`,
+  `Client ID: ...`), Portfolio IDs (`AX-XXXX`), Customer References (`CR-XXXX`), and Account
+  Numbers (`ACC-XXXX`, `Account No: ...`), with dynamic `EnterprisePattern` extensibility.
+- Implemented Presidio NLP wrapper in `detection/presidio_detector.py` leveraging spaCy
+  (`en_core_web_lg` 3.8.0) with lazy engine loading, canonical entity type normalization
+  (mapping Presidio types to `PERSON`, `EMAIL`, `PHONE`, `GOVERNMENT_ID`, `ACCOUNT_NUMBER`,
+  `LOCATION`, `DATE_TIME`), and configurable score thresholding.
+- Implemented deterministic entity merger in `detection/merger.py` handling overlap
+  clustering, priority resolution (Enterprise Recognizers > Regex > Presidio), tie-breaking,
+  detector provenance chaining (`"custom_enterprise,presidio"`), and canonical boundary selection.
+- Implemented `detect_pii` and `detect_pii_in_block` orchestrator in `detection/__init__.py`
+  mapping source coordinates (`page_number`, `slide_number`, `paragraph_number`, `extraction_method`)
+  into normalized canonical `PIIEntity` objects across all `ContentBlock`s.
+- Added comprehensive unit and integration test suite in `tests/test_detection.py` (18 test cases)
+  covering all detection layers, regex patterns, enterprise rules, NLP entities, deduplication, and
+  source location mapping. All 18 detection tests and all 91 previous tests passed (109 passed, 3 skipped).
+
+### Verification
+
+- Local platform: Windows, Python 3.11.9, uv 0.12.23.
+- `uv run pytest`: **109 passed, 3 skipped in 17.45s**, exit code 0.
+- Zero regressions across Phases 0 and 1.
+- All PIIEntity objects produce valid block-relative offsets and accurate source locations.
+
+### Known limitations
+
+- Presidio NLP models are probabilistic and depend on contextual sentences; single disconnected
+  tokens might require enterprise or regex patterns.
+- Date/Time entities are identified contextually and do not cover relative time expressions.
+
+### Next task
+
+**Phase 3 Redaction, Risk Classification & Privacy Gate.** Implement semantic placeholder
+redaction (`[PERSON]`, `[EMAIL]`, etc.), risk classifier (`CRITICAL`, `HIGH`, `MEDIUM`),
+fail-closed secondary privacy validation scan, and audit report generation.
