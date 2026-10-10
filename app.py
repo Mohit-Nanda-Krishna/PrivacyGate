@@ -17,6 +17,7 @@ import streamlit as st
 from privacygate.audit import audit_report_to_json
 from privacygate.detection import DetectionError
 from privacygate.extraction import ExtractionError
+from privacygate.evaluation import measure_structure_retention
 from privacygate.models import PIIEntity
 from privacygate.pipeline import run_batch, run_pipeline
 from privacygate.risk.classifier import RISK_MAPPING
@@ -609,13 +610,50 @@ if "pipeline_result" in st.session_state and st.session_state["pipeline_result"]
         st.subheader("Optiv Case Study Quality Benchmark")
         st.markdown(
             """
-            This tab reflects the evaluation framework metrics defined in **PRD Section 26**:
-            - **Detection Precision & Recall**: Hybrid deterministic rules and NLP context models ensure high precision on enterprise formats while maintaining maximum sensitivity.
-            - **Zero Residual PII Guarantee**: Content cannot reach an LLM unless residual PII is verified to be 0.
-            - **Structure Retention Target**: PRD requires $\\ge 80\\%$ preservation of document blocks and coordinates. PrivacyGate maintains $100\\%$ block continuity and location tags.
+            These metrics reflect the current document's processing results.
+            Structure retention is measured by comparing original and sanitized
+            document blocks. Residual PII is based on the firewall's validation
+            scan. Detection precision and recall require a ground-truth dataset.
             """
         )
+
+        structure_retention = measure_structure_retention(
+            doc.blocks,
+            sanitized.blocks,
+        )
+        residual_count = len(validation.residual_entities)
+
         b1, b2, b3 = st.columns(3)
-        b1.metric("Structure Retention", "100%", "Target: >=80%")
-        b2.metric("Residual PII Leakage", "0.0%", "Target: 0.0%")
-        b3.metric("Deterministic Overlap Rate", "100%", "Resolved via Merger")
+
+        b1.metric(
+            "Structure Retention",
+            f"{structure_retention:.1%}",
+            "Target: >=80%",
+        )
+
+        b2.metric(
+            "Residual PII Count",
+            residual_count,
+            "Target: 0",
+        )
+
+        b3.metric(
+            "Validation Status",
+            validation.status,
+        )
+
+        if residual_count > 0:
+            st.error(
+                f"Validation detected {residual_count} residual PII entities. "
+                "The document must remain blocked from downstream AI processing."
+            )
+        elif validation.status == "APPROVED":
+            st.success(
+                "No residual PII was detected by the validation scan, "
+                "and the privacy gate approved the document."
+            )
+        else:
+            st.warning(
+                "No residual PII was detected, but the privacy gate has not "
+                "approved the document. Review the validation reason above."
+            )
