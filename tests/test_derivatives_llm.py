@@ -119,7 +119,7 @@ def test_mock_llm_refuses_unless_approved():
 def _app_with(result, masked):
     app = AppTest.from_file(str(APP_PATH))
     app.session_state["pipeline_result"] = result
-    app.session_state["redacted_pdf"] = masked
+    app.session_state["redacted_pdfs"] = {result.document.filename: masked}
     return app.run(timeout=60)
 
 

@@ -122,3 +122,49 @@ def test_pipeline_multipass_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert res_multi.passes_executed == 2
 
 
+def test_residual_diagnostics_are_separate_from_audit_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import privacygate.pipeline as pipeline
+    from privacygate.audit import audit_report_to_json
+    from privacygate.models import PIIEntity, ValidationResult
+
+    test_docx = tmp_path / "residual_test.docx"
+    doc = DocxDocument()
+    doc.add_paragraph("Synthetic test document.")
+    doc.save(test_docx)
+
+    def mock_validate(sanitized_doc, **kwargs):
+        return ValidationResult(
+            status="BLOCKED",
+            reason="Residual PII detected.",
+            residual_entities=[PIIEntity(
+                entity_type="GOVERNMENT_ID", start=0, end=8,
+                confidence=0.95, detector="gate:id_shape",
+                block_id="PRIVATE_BLOCK_ID",
+                source_location={
+                    "page_number": 7,
+                    "extraction_method": "ocr",
+                    "filename": "PRIVATE_FILENAME.pdf",
+                    "secret": "PRIVATE_SOURCE_VALUE",
+                },
+            )],
+        )
+
+    monkeypatch.setattr(pipeline, "validate_privacy", mock_validate)
+    result = pipeline.run_pipeline(test_docx, max_passes=1)
+    assert result.validation.status == "BLOCKED"
+    assert result.audit_report.validation.status == "BLOCKED"
+    assert result.residual_diagnostics == [
+        {
+            "entity_type": "GOVERNMENT_ID",
+            "detectors": ["gate:id_shape"],
+            "page": 7,
+            "extraction_method": "ocr",
+        }
+    ]
+    exported = audit_report_to_json(result.audit_report)
+    assert "residual_diagnostics" not in exported
+    assert "PRIVATE_BLOCK_ID" not in exported
+    assert "PRIVATE_FILENAME.pdf" not in exported
+    assert "PRIVATE_SOURCE_VALUE" not in exported
