@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 
-from privacygate.audit import generate_audit_report
+from privacygate.audit import build_residual_diagnostics, generate_audit_report
 from privacygate.crossfile import BatchFile, TokenSummary, build_cross_file_index
 from privacygate.detection import detect_pii_with_registry, merge_entities
 from privacygate.detection.names import NameRegistry, merge_registries, sweep_names
@@ -30,6 +30,8 @@ class PipelineResult:
     passes_executed: int = 1
     # Applied replacements (token + structural location only), all passes.
     redactions: list[RedactionRecord] = field(default_factory=list, repr=False)
+    # Allowlisted residual metadata; excluded from repr to avoid accidental exposure.
+    residual_diagnostics: list[dict[str, Any]] = field(default_factory=list, repr=False)
 
 
 @dataclass
@@ -101,6 +103,8 @@ def _sanitize(
         validation_result=validation,
     )
 
+    residual_diagnostics = build_residual_diagnostics(validation.residual_entities)
+
     return PipelineResult(
         document=document,
         entities=entities,
@@ -109,6 +113,7 @@ def _sanitize(
         audit_report=audit_report,
         passes_executed=passes_executed,
         redactions=redactions,
+        residual_diagnostics=residual_diagnostics,
     )
 
 
