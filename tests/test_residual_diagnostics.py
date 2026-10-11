@@ -1,7 +1,44 @@
 import json
+from pathlib import Path
+import re
 
+from privacygate.audit import residual_diagnostics
 from privacygate.audit.residual_diagnostics import build_residual_diagnostics
 from privacygate.models import PIIEntity
+
+SRC = Path(__file__).resolve().parents[1] / "src" / "privacygate"
+
+
+def test_real_pipeline_values_are_kept():
+    residuals = [
+        PIIEntity("US_SSN", 0, 11, 1.0, "presidio:UsSsnRecognizer|regex:ssn", "b1",
+                  {"page_number": 3, "extraction_method": "pdf_native"}),
+        PIIEntity("PERSON", 0, 5, 0.85, "gate:name_registry|name_sweep", "b2",
+                  {"slide_number": 2, "extraction_method": "pptx_native"}),
+        PIIEntity("PERSON", 0, 5, 0.8, "context:role_name", "b3",
+                  {"extraction_method": "embedded_image_ocr"}),
+    ]
+    assert build_residual_diagnostics(residuals) == [
+        {"entity_type": "US_SSN", "detectors": ["presidio:UsSsnRecognizer", "regex:ssn"], "page": 3,
+         "extraction_method": "pdf_native"},
+        {"entity_type": "PERSON", "detectors": ["gate:name_registry", "name_sweep"], "page": None,
+         "extraction_method": "pptx_native"},
+        {"entity_type": "PERSON", "detectors": ["context:role_name"], "page": None,
+         "extraction_method": "embedded_image_ocr"},
+    ]
+
+
+def test_every_detector_name_in_the_source_is_allowlisted():
+    source = "\n".join(path.read_text(encoding="utf-8") for path in SRC.rglob("*.py"))
+    literal = set(re.findall(r'"((?:regex|custom|gate|context|pattern):[A-Za-z0-9_]+|name_sweep)"', source))
+    gate_checks = {f"gate:{name}" for name in re.findall(r'"([a-z_]+)"\)', source)
+                   if f'"{name}")' in source and name in {"name_registry", "digit_run", "email_shape",
+                                                         "id_shape", "unissued_placeholder"}}
+    custom_rules = {f"custom:{name.lower()}" for name in re.findall(r'\("([A-Z_]+)", r"[a-z]', source)}
+    extraction = set(re.findall(r'extraction_method="([a-z_]+)"', source))
+    allowed = residual_diagnostics._ALLOWED_DETECTORS
+    assert literal | gate_checks | custom_rules <= allowed, sorted((literal | gate_checks | custom_rules) - allowed)
+    assert extraction <= residual_diagnostics._ALLOWED_EXTRACTION_METHODS
 
 
 def test_residual_diagnostics_allowlists_metadata_and_hides_private_values():
