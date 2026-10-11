@@ -391,6 +391,18 @@ def _covered(text: str, start: int, end: int, spans: Sequence[tuple[int, int, PI
     )
 
 
+def _has_residual_character(original: str, sanitized: str, start: int, end: int) -> bool:
+    """Return whether an alphanumeric character from an original span survives sanitization."""
+    matcher = SequenceMatcher(None, original, sanitized, autojunk=False)
+    for tag, original_start, original_end, _, _ in matcher.get_opcodes():
+        if tag != "equal":
+            continue
+        for position in range(max(start, original_start), min(end, original_end)):
+            if original[position].isalnum():
+                return True
+    return False
+
+
 @dataclass
 class Score:
     """Occurrence-level recall and detection-level precision for one slice."""
@@ -459,7 +471,11 @@ class DocumentEvaluation:
 
 
 def evaluate_document(
-    document: Document, entities: Sequence[PIIEntity], rows: Sequence[GroundTruthRow], fuzzy: bool = True,
+    document: Document,
+    entities: Sequence[PIIEntity],
+    rows: Sequence[GroundTruthRow],
+    fuzzy: bool = True,
+    sanitized_document: Document | None = None,
 ) -> DocumentEvaluation:
     """Score detections against ground truth rows for one extracted document.
 
@@ -469,6 +485,7 @@ def evaluate_document(
     detections except those overlapping only uncertain rows.
     """
     pages = build_page_texts(document)
+    sanitized_pages = build_page_texts(sanitized_document) if sanitized_document is not None else None
     occurrences = locate_ground_truth(rows, pages, fuzzy=fuzzy)
     spans = entity_page_spans(entities, pages)
 
@@ -478,7 +495,16 @@ def evaluate_document(
         if occurrence.extracted:
             text = pages[occurrence.page].text
             occurrence.detected = any(s[0] < occurrence.end and s[1] > occurrence.start for s in page_spans)
-            occurrence.fully_redacted = _covered(text, occurrence.start, occurrence.end, page_spans)
+            if sanitized_pages is None:
+                occurrence.fully_redacted = _covered(text, occurrence.start, occurrence.end, page_spans)
+            else:
+                sanitized_page = sanitized_pages.get(occurrence.page)
+                occurrence.fully_redacted = (
+                    sanitized_page is not None
+                    and not _has_residual_character(
+                        text, sanitized_page.text, occurrence.start, occurrence.end,
+                    )
+                )
         if occurrence.row.uncertain:
             continue
         for score in (overall, by_type.setdefault(occurrence.row.entity_type, Score()),

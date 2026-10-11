@@ -95,6 +95,40 @@ def test_recall_precision_residual_and_partial_redaction():
     assert result.false_positive_types == {"PERSON": 1}
 
 
+def test_sanitized_document_measures_actual_redaction():
+    text = "Contact Zelda Quark."
+    document = _doc(_block("b1", text))
+    sanitized = _doc(_block("b1", "Contact [PERSON_001]."))
+    rows = [_row("Zelda Quark")]
+
+    result = evaluate_document(
+        document,
+        [_entity("b1", text, "Zelda Quark")],
+        rows,
+        sanitized_document=sanitized,
+    )
+
+    assert result.overall.detected == 1
+    assert result.overall.residual == 0
+
+
+def test_sanitized_document_counts_partial_residual():
+    text = "ID TK1234567."
+    document = _doc(_block("b1", text))
+    sanitized = _doc(_block("b1", "ID TK[GOVERNMENT_ID_001]."))
+    rows = [_row("TK1234567", "GOVERNMENT_ID")]
+
+    result = evaluate_document(
+        document,
+        [_entity("b1", text, "1234567", "PHONE_NUMBER")],
+        rows,
+        sanitized_document=sanitized,
+    )
+
+    assert result.overall.detected == 1
+    assert result.overall.residual == 1
+
+
 def test_uncertain_rows_are_neutral():
     text = "Mailbox team@example.test"
     document = _doc(_block("b1", text))
