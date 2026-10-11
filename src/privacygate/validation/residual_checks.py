@@ -58,10 +58,10 @@ def independent_residual_checks(
                        for s, e in unissued_numbered_spans(text, issued_tokens)]
         if name_registry is not None:
             candidates += [("PERSON", s, e, "name_registry") for s, e in name_registry.find(text)]
-        candidates += [("PHONE_NUMBER", s, e, "digit_run") for s, e in _digit_runs(text)]
         candidates += [("EMAIL_ADDRESS", *m.span(), "email_shape") for m in EMAIL_SHAPE.finditer(text)]
         for pattern in ID_SHAPES:
             candidates += [("GOVERNMENT_ID", *m.span(), "id_shape") for m in pattern.finditer(text)]
+        candidates += [("PHONE_NUMBER", s, e, "digit_run") for s, e in _digit_runs(text)]
         seen: set[tuple[int, int]] = set()
         for entity_type, start, end, check in candidates:
             if (start, end) in seen or inside_placeholder(start, end):
