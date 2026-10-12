@@ -129,6 +129,27 @@ def test_sanitized_document_counts_partial_residual():
     assert result.overall.residual == 1
 
 
+def test_sanitized_document_compares_only_the_matching_block():
+    document = _doc(
+        _block("intro", "Original introduction."),
+        _block("pii", "Contact Zelda Quark."),
+    )
+    sanitized = _doc(
+        _block("intro", "A completely rewritten introduction."),
+        _block("pii", "Contact [PERSON_001]."),
+    )
+    rows = [_row("Zelda Quark")]
+
+    result = evaluate_document(
+        document,
+        [_entity("pii", "Contact Zelda Quark.", "Zelda Quark")],
+        rows,
+        sanitized_document=sanitized,
+    )
+
+    assert result.overall.residual == 0
+
+
 def test_uncertain_rows_are_neutral():
     text = "Mailbox team@example.test"
     document = _doc(_block("b1", text))

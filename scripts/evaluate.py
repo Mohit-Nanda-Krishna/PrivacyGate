@@ -61,7 +61,7 @@ def evaluate_file(csv_path: Path, docs_dir: Path) -> dict:
     result = run_pipeline(source, max_passes=2)
     seconds = time.perf_counter() - started
     single_pass = "APPROVED" if result.passes_executed == 1 and result.validation.status == "APPROVED" else "BLOCKED"
-    evaluation = evaluate_document(result.document, result.entities, rows)
+    evaluation = evaluate_document(result.document, result.entities, rows, sanitized_document=result.sanitized_document)
     methods: dict[str, int] = defaultdict(int)
     for block in result.document.blocks:
         methods[block.extraction_method or "unknown"] += 1

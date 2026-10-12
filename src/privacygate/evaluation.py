@@ -403,6 +403,15 @@ def _has_residual_character(original: str, sanitized: str, start: int, end: int)
     return False
 
 
+def _occurrence_block(page: PageText, start: int, end: int) -> tuple[ContentBlock, int, int] | None:
+    """Return the source block and local span when an occurrence fits in one block."""
+    for block_start, block in page.spans:
+        block_end = block_start + len(block.text)
+        if block_start <= start and end <= block_end:
+            return block, start - block_start, end - block_start
+    return None
+
+
 @dataclass
 class Score:
     """Occurrence-level recall and detection-level precision for one slice."""
@@ -485,7 +494,11 @@ def evaluate_document(
     detections except those overlapping only uncertain rows.
     """
     pages = build_page_texts(document)
-    sanitized_pages = build_page_texts(sanitized_document) if sanitized_document is not None else None
+    sanitized_blocks = (
+        {block.block_id: block for block in sanitized_document.blocks}
+        if sanitized_document is not None
+        else None
+    )
     occurrences = locate_ground_truth(rows, pages, fuzzy=fuzzy)
     spans = entity_page_spans(entities, pages)
 
@@ -495,16 +508,21 @@ def evaluate_document(
         if occurrence.extracted:
             text = pages[occurrence.page].text
             occurrence.detected = any(s[0] < occurrence.end and s[1] > occurrence.start for s in page_spans)
-            if sanitized_pages is None:
+            if sanitized_blocks is None:
                 occurrence.fully_redacted = _covered(text, occurrence.start, occurrence.end, page_spans)
             else:
-                sanitized_page = sanitized_pages.get(occurrence.page)
-                occurrence.fully_redacted = (
-                    sanitized_page is not None
-                    and not _has_residual_character(
-                        text, sanitized_page.text, occurrence.start, occurrence.end,
+                located = _occurrence_block(pages[occurrence.page], occurrence.start, occurrence.end)
+                if located is None:
+                    occurrence.fully_redacted = False
+                else:
+                    original_block, local_start, local_end = located
+                    sanitized_block = sanitized_blocks.get(original_block.block_id)
+                    occurrence.fully_redacted = (
+                        sanitized_block is not None
+                        and not _has_residual_character(
+                            original_block.text, sanitized_block.text, local_start, local_end,
+                        )
                     )
-                )
         if occurrence.row.uncertain:
             continue
         for score in (overall, by_type.setdefault(occurrence.row.entity_type, Score()),
