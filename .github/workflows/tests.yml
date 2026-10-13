@@ -15,6 +15,17 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - name: Install Tesseract OCR (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tesseract-ocr tesseract-ocr-eng
+      - name: Install Tesseract OCR (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          choco install tesseract --no-progress -y
+          "C:\Program Files\Tesseract-OCR" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        shell: pwsh
       - name: Install uv and Python 3.11
         uses: astral-sh/setup-uv@v7
         with:
@@ -22,5 +33,10 @@ jobs:
           python-version: "3.11"
       - name: Sync locked dependencies
         run: uv sync --locked
+      - name: Verify Tesseract installation
+        run: |
+          tesseract --version
+          tesseract --list-langs
+          python -c "import subprocess; langs = subprocess.check_output(['tesseract', '--list-langs'], text=True); assert 'eng' in langs.split(), 'Tesseract English language data (eng) is missing'"
       - name: Run tests
         run: uv run --locked pytest
