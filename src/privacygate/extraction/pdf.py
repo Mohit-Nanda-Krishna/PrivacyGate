@@ -99,7 +99,7 @@ def extract_pdf(path: str | Path) -> Document:
                                     "block_order": order,
                                     "source_block_number": source_number,
                                     "bbox": [x0, y0, x1, y1],
-                                    },
+                                },
                             ))
                         if not native:
                             pages_without_text.append(page_number)

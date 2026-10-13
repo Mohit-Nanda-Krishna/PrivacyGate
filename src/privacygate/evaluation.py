@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import re
 from collections import Counter
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
@@ -392,34 +393,21 @@ def _covered(text: str, start: int, end: int, spans: Sequence[tuple[int, int, PI
 
 
 
+# Pseudonym tokens and generic placeholders: [PERSON], [PERSON_001], [ACCOUNT_NUMBER_1000].
+_TOKEN = re.compile(r"\[[A-Z][A-Z0-9_]*\]")
+_TOKEN_MARK = "\x00"
+
+
 def _has_residual_character(original: str, sanitized: str, start: int, end: int) -> bool:
-    """Return whether an original alphanumeric character survives outside a placeholder."""
-    import re
-
-    matcher = SequenceMatcher(None, original, sanitized, autojunk=False)
-    placeholder_spans = [
-        (match.start(), match.end())
-        for match in re.finditer(r"\[[A-Z][A-Z0-9_]*\]", sanitized)
-    ]
-
-    for tag, original_start, original_end, sanitized_start, _ in matcher.get_opcodes():
+    """Return whether a letter or digit of original[start:end] survives outside a placeholder."""
+    stripped = _TOKEN.sub(_TOKEN_MARK, sanitized)
+    matcher = SequenceMatcher(None, original, stripped, autojunk=False)
+    for tag, original_start, original_end, _, _ in matcher.get_opcodes():
         if tag != "equal":
             continue
-
         for position in range(max(start, original_start), min(end, original_end)):
-            if not original[position].isalnum():
-                continue
-
-            sanitized_position = sanitized_start + (position - original_start)
-
-            inside_placeholder = any(
-                left <= sanitized_position < right
-                for left, right in placeholder_spans
-            )
-
-            if not inside_placeholder:
+            if original[position].isalnum():
                 return True
-
     return False
 
 

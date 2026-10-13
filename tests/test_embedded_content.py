@@ -224,7 +224,8 @@ def test_pptx_notes_and_pictures(tmp_path, fake_image_ocr):
     assert [(b.slide_number, b.text) for b in notes] == [(1, "Speaker notes: call Zelda Quark"),
                                                          (2, "Speaker notes: call Zelda Quark")]
     images = [b for b in document.blocks if b.extraction_method == "embedded_image_ocr"]
-    assert images and all(b.slide_number == 1 for b in images)
+    assert {b.slide_number for b in images} == {1, 2}
+    assert len(document.metadata["embedded_images"]) == 1
     assert len(fake_image_ocr) == 1  # the same media file on two slides is OCR'd once
 
 
