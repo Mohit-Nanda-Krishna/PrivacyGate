@@ -1,9 +1,12 @@
 """Figures on scanned pages and OCR-only detection (synthetic images and strings only)."""
 
+from pathlib import Path
+
 import numpy as np
 import pymupdf
 import pytest
 from PIL import Image, ImageDraw
+from streamlit.testing.v1 import AppTest
 
 from privacygate.derivatives import redact_pdf
 from privacygate.detection import detect_pii
@@ -20,6 +23,8 @@ from privacygate.extraction import figures, ocr
 from privacygate.extraction.pdf import extract_pdf
 from privacygate.models import ContentBlock, Document
 from privacygate.pipeline import run_pipeline
+
+APP_PATH = Path(__file__).parents[1] / "app.py"
 
 
 def _page(width=1200, height=1600):
@@ -214,7 +219,7 @@ def test_redacted_pdf_masks_detected_values_inside_readable_figures(tmp_path, mo
                      extraction_method=b.extraction_method, metadata=dict(b.metadata))
         for b in document.blocks
     ])
-    masked = redact_pdf(path, document, sanitized)
+    masked = redact_pdf(path, document, sanitized, mask_all_figures=False)
     assert masked.by_method == {"figure_ocr": 1} and masked.unreadable_figures == 0
     left, top, right, bottom = block.metadata["word_boxes_pixels"][1]
     with pymupdf.open(stream=masked.data, filetype="pdf") as pdf:
@@ -226,11 +231,55 @@ def test_photo_regions_are_masked_and_counted(tmp_path):
     document = Document("d", "scan.pdf", "pdf", blocks=[], metadata={"figure_regions": [{
         "page": 1, "figure": 1, "bbox_pixels": [300, 300, 1500, 1500], "render_dpi": 300, "confidence": 90.0,
         "readable": True, "photos": [[400, 400, 700, 800]], "variant": "gray3x/psm6"}]})
-    masked = redact_pdf(path, document, document)
+    masked = redact_pdf(path, document, document, mask_all_figures=False)
     assert masked.photos == 1 and masked.unreadable_figures == 0
     with pymupdf.open(stream=masked.data, filetype="pdf") as pdf:
         pixmap = pdf[0].get_pixmap(dpi=300)
         assert pixmap.pixel(550, 600) == (0, 0, 0) and pixmap.pixel(1200, 1200) == (255, 255, 255)
+
+
+def _readable_figure(tmp_path, monkeypatch):
+    """A scanned page with one readable figure whose text holds no detected value."""
+    path = _scanned_pdf(tmp_path, _framed)
+    monkeypatch.setattr(ocr.shutil, "which", lambda command: "tesseract")
+    monkeypatch.setattr(ocr.pytesseract, "image_to_data",
+                        _fake_tesseract(["Policy", "text", "for", "the", "risk", "register"],
+                                        ["Quarterly", "volumes", "chart"]))
+    document = extract_pdf(path)
+    [region] = document.metadata["figure_regions"]
+    assert region["readable"] is True
+    return path, document, region
+
+
+def test_strict_mode_masks_every_figure_whole_and_reports_it(tmp_path, monkeypatch):
+    path, document, region = _readable_figure(tmp_path, monkeypatch)
+    x0, y0, x1, y1 = region["bbox_pixels"]
+    strict = redact_pdf(path, document, document)  # strict is the default
+    standard = redact_pdf(path, document, document, mask_all_figures=False)
+    assert strict.strict_figures == 1 and standard.strict_figures == 0
+    with pymupdf.open(stream=strict.data, filetype="pdf") as pdf:
+        pixmap = pdf[0].get_pixmap(dpi=300)
+        assert pixmap.pixel((x0 + x1) // 2, y0 + 10) == (0, 0, 0)  # a value OCR could not read is hidden
+        assert pixmap.pixel(100, 3200) == (255, 255, 255)
+    with pymupdf.open(stream=standard.data, filetype="pdf") as pdf:
+        assert pdf[0].get_pixmap(dpi=300).pixel((x0 + x1) // 2, y0 + 10) != (0, 0, 0)  # today's behaviour
+
+
+def test_app_masks_all_figures_by_default_and_can_turn_it_off(tmp_path, monkeypatch):
+    path, document, _ = _readable_figure(tmp_path, monkeypatch)
+    result = run_pipeline(path)
+    variants = {mode: redact_pdf(path, result.document, result.sanitized_document,
+                                 mask_all_figures=mode == "strict") for mode in ("strict", "standard")}
+    app = AppTest.from_file(str(APP_PATH))
+    app.session_state["pipeline_result"] = result
+    app.session_state["redacted_pdfs"] = {result.document.filename: variants}
+    app.run(timeout=60)
+    assert not app.exception
+    toggle = next(box for box in app.checkbox if box.label == "Mask all figures")
+    assert toggle.value is True
+    assert any("1 figure regions masked (strict mode)" in str(caption.value) for caption in app.caption)
+    toggle.uncheck().run(timeout=60)
+    assert not any("strict mode" in str(caption.value) for caption in app.caption)
 
 
 def test_failed_figure_scan_is_reported(tmp_path):
