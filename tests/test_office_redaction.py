@@ -169,3 +169,22 @@ def test_app_blocked_office_document_gates_the_review_copy(tmp_path):
     assert not app.exception
     assert any("redacted copy may still contain personal data" in str(w.value) for w in app.warning)
     assert next(box for box in app.checkbox if box.key == "office_review_copy").value is False
+
+
+def test_document_properties_are_removed_not_left_empty(tmp_path, screenshot_ocr):
+    """Word rejects a file with an empty date property ("The file appears to be corrupted")."""
+    import datetime
+
+    path = tmp_path / "memo.docx"
+    doc = WordDocument(_docx(path))
+    doc.core_properties.last_printed = datetime.datetime(2026, 1, 5, 9, 30)
+    doc.core_properties.category = "Owner Quillon Ferrant"
+    doc.save(path)
+    result = run_pipeline(path)
+    copy = redact_office(path, result.document, result.sanitized_document)
+    with zipfile.ZipFile(io.BytesIO(copy.data)) as archive:
+        core = archive.read("docProps/core.xml").decode("utf-8")
+    assert "lastPrinted" not in core and "category" not in core and "creator" not in core
+    assert "<dcterms:created" in core  # creation/modification dates are kept
+    properties = WordDocument(io.BytesIO(copy.data)).core_properties
+    assert properties.last_printed is None and properties.author == "" and properties.category == ""

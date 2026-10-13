@@ -241,12 +241,13 @@ def _clear_properties(name: str, data: bytes) -> bytes:
         for child in list(root):
             root.remove(child)
     else:
-        for element in root:
+        # Remove rather than empty: every property is optional, but Word rejects some empty
+        # values (an empty date such as cp:lastPrinted makes the file "corrupted").
+        for element in list(root):
             local = etree.QName(element).localname
-            if name == "docProps/core.xml" and local not in CORE_KEPT:
-                element.text = ""
-            elif name == "docProps/app.xml" and local in ("Company", "Manager"):
-                element.text = ""
+            if (name == "docProps/core.xml" and local not in CORE_KEPT) or (
+                    name == "docProps/app.xml" and local in ("Company", "Manager")):
+                root.remove(element)
     return etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
 
 
