@@ -19,6 +19,14 @@ def _is_placeholder_span(
     )
 
 
+def _is_place_name_only(entity: PIIEntity) -> bool:
+    """LOCATION reported only by the NER model, with no address or identifier rule agreeing."""
+    sources = [source for source in entity.detector.split("|") if source]
+    return entity.entity_type == "LOCATION" and bool(sources) and all(
+        source.startswith("presidio:") for source in sources
+    )
+
+
 def validate_privacy(
     sanitized_doc: Document,
     confidence_threshold: float = 0.40,
@@ -84,6 +92,12 @@ def validate_privacy(
             # Check if this detection is merely detecting one of our intentional placeholders
             block_text = blocks_by_id.get(entity.block_id, "")
             if _is_placeholder_span(block_text, entity.start, entity.end, issued_tokens):
+                continue
+
+            # A place name found only by the NER model ("New York 24F", "Manila") is an
+            # office or city, not a personal address; street addresses are caught by the
+            # address rule as ADDRESS and still block.
+            if _is_place_name_only(entity):
                 continue
 
             residual_entities.append(entity)
