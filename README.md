@@ -107,6 +107,32 @@ The Streamlit dashboard will open in your browser at `http://localhost:8501`.
 uv run pytest
 ```
 
+### Troubleshooting
+
+**Dependency installation fails**
+
+- Verify that Python 3.11 is installed.
+- Ensure that `uv` is installed and available in your terminal.
+- Retry dependency synchronization with:
+
+```bash
+uv sync --locked
+```
+
+**Dashboard does not start**
+
+- Verify that dependency installation completed successfully.
+- Check the terminal output for the specific error.
+- Start the dashboard using the command in the Quickstart section:
+
+```bash
+uv run streamlit run app.py
+```
+
+**Tests fail**
+
+Run the test suite using `uv run pytest` and review the error output to identify the failing test.
+
 ---
 
 ## Project Documentation
