@@ -48,7 +48,7 @@ Cadence_Group_Risk_Management_Policy__v6.0.pdf,3,table,PHONE,+44 20 7555 0171,,
 Cadence_Group_Risk_Management_Policy__v6.0.pdf,3,table,PHONE,+44 20 7555 0163,,
 Cadence_Group_Risk_Management_Policy__v6.0.pdf,3,table,PHONE,+33 15555 0144,,
 Cadence_Group_Risk_Management_Policy__v6.0.pdf,3,table,PHONE,+65 6555 0172,,
-Cadence_Group_Risk_Management_Policy__v6.0.pdf,3,table,PHONE,(212) 555-0147,,
+Cadence_Group_Risk_Management_Policy__v6.0.pdf,3,table,PHONE,+1 (212) 555-0147,,corrected after review: value as printed includes country code
 Cadence_Group_Risk_Management_Policy__v6.0.pdf,3,table,EMPLOYEE_ID,EMP-38104,,
 Cadence_Group_Risk_Management_Policy__v6.0.pdf,3,table,EMPLOYEE_ID,EMP-37655,,
 Cadence_Group_Risk_Management_Policy__v6.0.pdf,3,table,EMPLOYEE_ID,EMP-41501,,
@@ -119,8 +119,6 @@ Cadence_Group_Risk_Management_Policy__v6.0.pdf,6,table,PHONE,+1 (212) 555-0136,,
 Cadence_Group_Risk_Management_Policy__v6.0.pdf,6,table,PHONE,+1 (646) 555-0119,,
 Cadence_Group_Risk_Management_Policy__v6.0.pdf,6,table,PHONE,+1 (212) 555-0158,,
 Cadence_Group_Risk_Management_Policy__v6.0.pdf,6,image,PERSON,C. A. Whitfield,,Figure 1 org chart
-Cadence_Group_Risk_Management_Policy__v6.0.pdf,6,table,PHONE,(212) 555-0108,,
-Cadence_Group_Risk_Management_Policy__v6.0.pdf,6,table,PHONE,(212) 555-0113,,
 Cadence_Group_Risk_Management_Policy__v6.0.pdf,6,image,PERSON,F. L. Nakagawa,,Figure 1 org chart
 Cadence_Group_Risk_Management_Policy__v6.0.pdf,6,image,PERSON,P. S. Raghavan,,Figure 1 org chart
 Cadence_Group_Risk_Management_Policy__v6.0.pdf,6,image,PERSON,Rosalind,yes,Figure 1 OCR fragment (first name only)
@@ -142,9 +140,9 @@ Cadence_Group_Risk_Management_Policy__v6.0.pdf,7,prose,PHONE,+1 (917) 555-0146,,
 Cadence_Group_Risk_Management_Policy__v6.0.pdf,7,table,PHONE,+1 (917) 555-0177,,
 Cadence_Group_Risk_Management_Policy__v6.0.pdf,7,table,PHONE,+1 (917) 555-0104,,
 Cadence_Group_Risk_Management_Policy__v6.0.pdf,7,table,PHONE,+1 917 555-0111,,
-Cadence_Group_Risk_Management_Policy__v6.0.pdf,7,table,PHONE,(212) 555-0147,,
-Cadence_Group_Risk_Management_Policy__v6.0.pdf,7,table,PHONE,(704) 555-0159,,
-Cadence_Group_Risk_Management_Policy__v6.0.pdf,7,table,PHONE,(212) 555-0188,,
+Cadence_Group_Risk_Management_Policy__v6.0.pdf,7,table,PHONE,+1 (212) 555-0147,,corrected after review: value as printed includes country code
+Cadence_Group_Risk_Management_Policy__v6.0.pdf,7,table,PHONE,+1 (704) 555-0159,,corrected after review: value as printed includes country code
+Cadence_Group_Risk_Management_Policy__v6.0.pdf,7,table,PHONE,+1 (212) 555-0188,,corrected after review: value as printed includes country code
 Cadence_Group_Risk_Management_Policy__v6.0.pdf,7,table,EMPLOYEE_ID,EMP-38104,,
 Cadence_Group_Risk_Management_Policy__v6.0.pdf,7,table,EMPLOYEE_ID,EMP-41455,,
 Cadence_Group_Risk_Management_Policy__v6.0.pdf,7,table,EMPLOYEE_ID,EMP-36781,,
@@ -747,7 +745,7 @@ Cadence_Group_Risk_Management_Policy__v6.0.pdf,34,table,PERSON,Naomi K. Osadebe,
 Cadence_Group_Risk_Management_Policy__v6.0.pdf,34,table,PERSON,Rafael E. Duarte,,
 Cadence_Group_Risk_Management_Policy__v6.0.pdf,34,table,PERSON,Arvind K. Pillai,,
 Cadence_Group_Risk_Management_Policy__v6.0.pdf,34,table,PHONE,+1 (212) 555-0158,,
-Cadence_Group_Risk_Management_Policy__v6.0.pdf,34,table,PHONE,(212) 555-0113,,
+Cadence_Group_Risk_Management_Policy__v6.0.pdf,34,table,PHONE,+1 (212) 555-0113,,corrected after review: value as printed includes country code
 Cadence_Group_Risk_Management_Policy__v6.0.pdf,34,table,EMPLOYEE_ID,EMP-38550,,
 Cadence_Group_Risk_Management_Policy__v6.0.pdf,34,table,EMPLOYEE_ID,EMP-41502,,
 Cadence_Group_Risk_Management_Policy__v6.0.pdf,34,table,EMPLOYEE_ID,EMP-39877,,
@@ -869,3 +867,24 @@ Cadence_Group_Risk_Management_Policy__v6.0.pdf,12,image,EMAIL,p.raghavan@cadence
 Cadence_Group_Risk_Management_Policy__v6.0.pdf,12,image,PHONE,+91 80 4555 0182,,Figure 4 dashboard footer
 Cadence_Group_Risk_Management_Policy__v6.0.pdf,28,image,DATE_OF_BIRTH,28 February 1979,,Figure 13 badge
 Cadence_Group_Risk_Management_Policy__v6.0.pdf,1,body,ADDRESS,"245 Hudson Street, New York, NY 10013",yes,corporate office address
+Cadence_Group_Risk_Management_Policy__v6.0.pdf,3,table,PHONE,+91 22 4555 0117,,added after review; wraps across lines in a table cell
+Cadence_Group_Risk_Management_Policy__v6.0.pdf,4,table,PHONE,+1 (212) 555-0121,,added after review; wraps across lines in a table cell
+Cadence_Group_Risk_Management_Policy__v6.0.pdf,4,table,PHONE,+44 20 7555 0129,,added after review; wraps across lines in a table cell
+Cadence_Group_Risk_Management_Policy__v6.0.pdf,4,table,PHONE,+33 1 5555 0144,,added after review; wraps across lines in a table cell
+Cadence_Group_Risk_Management_Policy__v6.0.pdf,4,table,PHONE,+91 80 4555 0182,,added after review; wraps across lines in a table cell
+Cadence_Group_Risk_Management_Policy__v6.0.pdf,4,table,PHONE,+44 20 7555 0163,,added after review; wraps across lines in a table cell
+Cadence_Group_Risk_Management_Policy__v6.0.pdf,6,table,PHONE,+49 69 5555 0177,,added after review; wraps across lines in a table cell
+Cadence_Group_Risk_Management_Policy__v6.0.pdf,13,table,PHONE,+1 (212) 555-0136,,added after review; wraps across lines in a table cell
+Cadence_Group_Risk_Management_Policy__v6.0.pdf,13,table,PHONE,+91 98860 55107,,added after review; wraps across lines in a table cell
+Cadence_Group_Risk_Management_Policy__v6.0.pdf,13,table,PHONE,+48 22 555 0164,,added after review; wraps across lines in a table cell
+Cadence_Group_Risk_Management_Policy__v6.0.pdf,13,table,PHONE,+1 (212) 555-0174,,added after review; wraps across lines in a table cell
+Cadence_Group_Risk_Management_Policy__v6.0.pdf,13,table,PHONE,+1 (212) 555-0158,,added after review; wraps across lines in a table cell
+Cadence_Group_Risk_Management_Policy__v6.0.pdf,13,table,PHONE,+1 (212) 555-0121,,added after review; wraps across lines in a table cell
+Cadence_Group_Risk_Management_Policy__v6.0.pdf,25,table,PHONE,+1 (646) 555-0203,,added after review; wraps across lines in a table cell
+Cadence_Group_Risk_Management_Policy__v6.0.pdf,34,table,PHONE,+44 20 7555 0171,,added after review; wraps across lines in a table cell
+Cadence_Group_Risk_Management_Policy__v6.0.pdf,34,table,PHONE,+1 (212) 555-0147,,added after review; wraps across lines in a table cell
+Cadence_Group_Risk_Management_Policy__v6.0.pdf,35,table,PHONE,+44 20 7555 0163,,added after review; wraps across lines in a table cell
+Cadence_Group_Risk_Management_Policy__v6.0.pdf,35,table,PHONE,+1 (212) 555-0108,,added after review; wraps across lines in a table cell
+Cadence_Group_Risk_Management_Policy__v6.0.pdf,18,image,PERSON,Ashby,,added after review; surname in the HR extract file name
+Cadence_Group_Risk_Management_Policy__v6.0.pdf,23,prose,LOCATION,Miami,,customer location tied to transactions
+Cadence_Group_Risk_Management_Policy__v6.0.pdf,35,table,PHONE,+1 (212) 555-0100,,added after review; wraps across lines in a table cell
