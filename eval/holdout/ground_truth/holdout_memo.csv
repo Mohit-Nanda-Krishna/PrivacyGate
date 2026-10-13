@@ -1,0 +1,13 @@
+file,page,location_type,entity_type,value,uncertain,note
+holdout_memo.docx,,body,PERSON,Callum Ferreira-Wynn,,
+holdout_memo.docx,,prose,PERSON,Marisol Vantongeren,,
+holdout_memo.docx,,prose,EMAIL,marisol.vantongeren@brightwater-mutual.example,,
+holdout_memo.docx,,prose,PHONE,+1 (503) 555-0849,,
+holdout_memo.docx,,prose,PERSON,Kwabena Asante,,
+holdout_memo.docx,,table,PERSON,Yuki Thornbury,,
+holdout_memo.docx,,table,EMPLOYEE_ID,BWM-48213,,
+holdout_memo.docx,,table,EMPLOYEE_ID,BWM-52914,,
+holdout_memo.docx,,table,EMPLOYEE_ID,BWM-61432,,
+holdout_memo.docx,image1.png,image,PERSON,Teodoro Bakshi,,
+holdout_memo.docx,image1.png,image,PERSON,Ingrid Haldorsen,,
+holdout_memo.docx,image1.png,image,PERSON,Noor Elsherbiny,,
