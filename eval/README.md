@@ -65,20 +65,51 @@ true nor false positives:
 
 To include a row, change `uncertain` to blank. To drop one, delete the row.
 
+### Review of PDF false positives (2026-10-13)
+
+Every PDF detection that matched no labelled value was checked against the rendered pages.
+
+- **Added** (note "added after review; …"): 18 phone numbers printed in table cells on pages
+  3, 4, 6, 13, 25, 34 and 35 that wrap onto a second line and had never been labelled; the
+  surname `Ashby` inside an HR extract file name on page 18; and `Miami` on page 23, labelled
+  `LOCATION` because it is a customer's location tied to their card transactions (the only
+  `LOCATION` row; office cities stay unlabelled).
+- **Corrected** (note "corrected after review: value as printed includes country code"):
+  phone rows on pages 3, 7 and 34 had been labelled without the `+1` that the page prints at the
+  end of the line above (`+1` / `(212) 555-0147`); they now hold the full printed value. On page 6
+  the two shorter duplicates of already-labelled `+1 (212) …` rows were removed, and the board
+  chair's `+1 (212) 555-0100` on page 35 was added (as on page 32).
+- **Left as false positives:** detections of values that *are* labelled, in a form the scorer
+  cannot pair with the label: OCR-damaged spellings (`rbera@cadencefg.cor` for
+  `r.achterberg@cadencefg.com`, `Osei-tuty`, `EMP-38056` for `EMP-38066`), truncated pieces
+  (`P. Brig`), and damaged digits (`646-855-0188`, `90.42.7781`). They are real PII and are
+  redacted, but the labels record the true value, digit-heavy values never match fuzzily
+  (one wrong digit is a different number), and adding each OCR misreading as its own row
+  would make the labels describe one OCR run instead of the document. So they lower
+  precision; the matching occurrences are counted normally for recall and residual. Place
+  names, register references, UI labels and OCR noise also stay false positives.
+
 ## Scoring rules
 
 - **Occurrence matching** ignores case, spaces and punctuation and respects word boundaries.
   Letter-heavy values (names, e-mails) also match OCR-damaged text fuzzily (similarity ≥ 0.85,
   word-bounded) anywhere their exact form does not already match, so `Szewezyk` is found on a
   page that also prints `Szewczyk`. Digit-heavy values never match fuzzily.
+- **Wrapped values:** OCR reads a table row across all its columns, so a value that wraps
+  inside its cell comes out as two fragments with other cells' text in between
+  (`…, +1 (212)` … `555-0136`). A value not found whole is also looked for as two fragments,
+  split at a space or hyphen: the second fragment, then the nearest unclaimed first fragment
+  at most 6 lines earlier on the same page. Fragments must match exactly with the same groups
+  of letters and digits. A wrapped occurrence is **detected** only if every fragment is
+  covered by a detection and **residual** if any fragment is left.
 - **Not extracted:** a row whose value is not found on its page counts as one missed
   occurrence. This is how image-only content that the pipeline never extracts shows up.
 - **Recall** = occurrences overlapped by any detection ÷ all occurrences.
 - **Residual PII rate** = occurrences with any letter or digit left outside the redacted
   spans ÷ all occurrences. A partial redaction such as `TK[PHONE]` is detected but residual.
 - **Precision** = detections overlapping a labelled occurrence ÷ all judged detections.
-  Per-type precision uses the detector's type (`EMAIL_ADDRESS` → `EMAIL` etc.); `LOCATION`
-  has no ground truth type and is reported on its own row.
+  Per-type precision uses the detector's type (`EMAIL_ADDRESS` → `EMAIL` etc.). `LOCATION`
+  has one labelled row (a customer location); other place-name detections are false positives.
 - **Channels:** `native` = digitally native text, `ocr` = scanned-page text, `image` = rows
   located in figures/screenshots (`location_type = image`) or text from embedded-image OCR.
 - **Gate:** the single-pass and two-pass (app "Multi-Pass") privacy gate decisions are both
