@@ -1,0 +1,11 @@
+file,page,location_type,entity_type,value,uncertain,note
+holdout_deck.pptx,1,body,PERSON,Ingrid Haldorsen,,
+holdout_deck.pptx,2,table,PERSON,Teodoro Bakshi,,
+holdout_deck.pptx,2,table,PHONE,+44 161 496 0263,,
+holdout_deck.pptx,2,table,PERSON,Noor Elsherbiny,,
+holdout_deck.pptx,2,table,PHONE,+44 117 496 0385,,
+holdout_deck.pptx,2,table,PERSON,Kwabena Asante,,
+holdout_deck.pptx,2,table,PHONE,+44 29 2018 0478,,
+holdout_deck.pptx,2,body,PERSON,Yuki Thornbury,,
+holdout_deck.pptx,2,body,EMAIL,yuki.thornbury@brightwater-mutual.example,,
+holdout_deck.pptx,2,prose,PERSON,Marisol Vantongeren,,
