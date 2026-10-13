@@ -7,6 +7,7 @@ is measured separately in privacygate.structure.
 from __future__ import annotations
 
 import csv
+import re
 from collections import Counter
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher

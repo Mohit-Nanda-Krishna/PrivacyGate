@@ -324,3 +324,54 @@ def test_repository_ground_truth_files_are_well_formed():
         assert rows
         assert len({row.file for row in rows}) == 1
         assert {row.location_type for row in rows} <= allowed
+
+
+def test_fully_redacted_phone_placeholder_is_not_residual():
+    from privacygate.evaluation import _has_residual_character
+
+    assert not _has_residual_character(
+        "Call 9876543210",
+        "Call [PHONE_001]",
+        5,
+        15,
+    )
+
+
+def test_partially_redacted_phone_remains_residual():
+    from privacygate.evaluation import _has_residual_character
+
+    assert _has_residual_character(
+        "Call 9876543210",
+        "Call 98[PHONE_001]",
+        5,
+        15,
+    )
+
+
+def test_evaluation_evaluates_final_sanitized_document():
+    doc = _doc(_block("b1", "Employee John Doe at j.doe@example.test with ID EMP-12345"))
+    sanitized_clean = _doc(_block("b1", "Employee [PERSON_001] at [EMAIL_001] with ID [EMPLOYEE_ID_001]"))
+    sanitized_dirty = _doc(_block("b1", "Employee [PERSON_001] at [EMAIL_001] with ID EMP-123[EMPLOYEE_ID_001]"))
+
+    rows = [
+        _row("John Doe", "PERSON"),
+        _row("j.doe@example.test", "EMAIL"),
+        _row("EMP-12345", "EMPLOYEE_ID"),
+    ]
+    entities = [
+        _entity("b1", "Employee John Doe at j.doe@example.test with ID EMP-12345", "John Doe", "PERSON"),
+        _entity("b1", "Employee John Doe at j.doe@example.test with ID EMP-12345", "j.doe@example.test", "EMAIL"),
+        _entity("b1", "Employee John Doe at j.doe@example.test with ID EMP-12345", "EMP-12345", "EMPLOYEE_ID"),
+    ]
+
+    clean_eval = evaluate_document(doc, entities, rows, sanitized_document=sanitized_clean)
+    assert clean_eval.overall.occurrences == 3
+    assert clean_eval.overall.detected == 3
+    assert clean_eval.overall.residual == 0
+    assert clean_eval.overall.residual_rate == 0.0
+
+    dirty_eval = evaluate_document(doc, entities, rows, sanitized_document=sanitized_dirty)
+    assert dirty_eval.overall.occurrences == 3
+    assert dirty_eval.overall.detected == 3
+    assert dirty_eval.overall.residual == 1
+    assert dirty_eval.by_type["EMPLOYEE_ID"].residual == 1

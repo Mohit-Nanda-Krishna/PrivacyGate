@@ -1,15 +1,14 @@
-"""Local OCR of raster images embedded in DOCX/PPTX files.
+"""Local OCR of raster images embedded in PDF/DOCX/PPTX files.
 
-Screenshots pasted into Office documents often carry names, e-mail addresses
+Screenshots and figures embedded in documents often carry names, e-mail addresses
 and IDs that native text extraction never sees. Each embedded raster image is
 OCR'd with the same Tesseract settings and retry policy as scanned PDF pages.
 
-* Tiny images (logos, icons) are skipped and recorded in the warnings.
-* Vector formats (EMF/WMF/SVG) cannot be OCR'd; they are skipped with a
-  warning so the gap is visible in the audit report.
-* An image whose OCR fails is recorded in metadata["embedded_images_failed"];
-  the privacy gate blocks such documents because the content was not inspected.
-* An image with no recognisable text yields no blocks and no error.
+* Raster images are enlarged in memory using Lanczos resampling and inspected locally.
+* Unsupported vector formats (.emf, .wmf, .svg, etc.) cannot be safely inspected for PII;
+  they are recorded in warnings, reported as skipped_vector, and added to metadata["embedded_images_failed"].
+* Any uninspected image or OCR failure causes the privacy gate to block the document fail-closed.
+* An inspected raster image with no recognisable text yields no blocks and no error.
 """
 
 from __future__ import annotations
@@ -28,8 +27,6 @@ from privacygate.extraction.ocr import group_lines, run_ocr
 from privacygate.models import ContentBlock
 
 VECTOR_EXTENSIONS = frozenset({"emf", "wmf", "svg", "emz", "wmz"})
-MIN_IMAGE_PIXELS = 100_000  # e.g. 400 x 250; smaller images are logos and icons
-MIN_IMAGE_SIDE = 60
 UPSCALE_BELOW_WIDTH = 1000  # small screenshots OCR better at 2x
 EMBEDDED_OCR_WORKERS = max(1, min(4, os.cpu_count() or 1))
 
@@ -64,8 +61,15 @@ def _ocr_one(image: EmbeddedImage) -> tuple[list[tuple], int, str | None]:
     except Exception:
         return [], 0, f"Could not decode {label}."
     try:
-        if picture.width < UPSCALE_BELOW_WIDTH:
-            resized = picture.resize((picture.width * 2, picture.height * 2))
+        if picture.width <= 0 or picture.height <= 0:
+            return [], 0, f"Invalid dimensions for {label}."
+        min_dim = min(picture.width, picture.height)
+        if picture.width < UPSCALE_BELOW_WIDTH or min_dim < 150:
+            scale = max(2, min(8, 300 // max(1, min_dim)))
+            resized = picture.resize(
+                (picture.width * scale, picture.height * scale),
+                resample=Image.Resampling.LANCZOS,
+            )
             picture.close()
             picture = resized
         data, attempts = run_ocr(picture, label, dpi=None)
@@ -80,31 +84,49 @@ def _ocr_one(image: EmbeddedImage) -> tuple[list[tuple], int, str | None]:
 
 def ocr_embedded_images(images: Sequence[EmbeddedImage]) -> EmbeddedOcrResult:
     """OCR raster images concurrently; blocks are returned in input order."""
+    import hashlib
+
     result = EmbeddedOcrResult()
-    candidates: list[EmbeddedImage] = []
-    seen: set[str] = set()
+    if not images:
+        return result
+
+    digest_candidates: dict[bytes, EmbeddedImage] = {}
+    occurrences_by_digest: dict[bytes, list[EmbeddedImage]] = {}
+    digest_status: dict[bytes, tuple[str, str]] = {}
+
     for image in images:
-        if image.name in seen:
-            # The same media file reused (e.g. a logo on every slide) is OCR'd once.
+        digest = hashlib.sha256(image.data).digest()
+        occurrences_by_digest.setdefault(digest, []).append(image)
+
+        if digest in digest_status or digest in digest_candidates:
             continue
-        seen.add(image.name)
+
         if image.extension in VECTOR_EXTENSIONS:
-            result.warnings.append({"image": image.name, "reason": f"vector image ({image.extension}) not OCR'd"})
-            result.report.append({"image": image.name, "status": "skipped_vector"})
+            digest_status[digest] = ("skipped_vector", f"vector image ({image.extension}) not inspected")
             continue
         try:
             with Image.open(io.BytesIO(image.data)) as probe:
                 width, height = probe.size
         except Exception:
-            result.failed.append(image.name)
-            result.report.append({"image": image.name, "status": "failed", "reason": "could not decode image"})
+            digest_status[digest] = ("failed", "could not decode image")
             continue
-        if width * height < MIN_IMAGE_PIXELS or min(width, height) < MIN_IMAGE_SIDE:
-            result.warnings.append({"image": image.name, "reason": f"tiny image ({width}x{height}) not OCR'd"})
-            result.report.append({"image": image.name, "status": "skipped_tiny"})
+        if width <= 0 or height <= 0:
+            digest_status[digest] = ("failed", f"invalid image dimensions ({width}x{height})")
             continue
-        candidates.append(image)
 
+        digest_candidates[digest] = image
+
+    # Record non-candidate outcomes (vectors, decode failures) once per unique image
+    for digest, (status, reason) in digest_status.items():
+        primary = occurrences_by_digest[digest][0]
+        if status == "skipped_vector":
+            result.warnings.append({"image": primary.name, "reason": f"vector image ({primary.extension}) not OCR'd"})
+            result.report.append({"image": primary.name, "status": "skipped_vector", "reason": reason})
+        else:
+            result.report.append({"image": primary.name, "status": "failed", "reason": reason})
+        result.failed.append(primary.name)
+
+    candidates = list(digest_candidates.values())
     if not candidates:
         return result
     if shutil.which("tesseract") is None:
@@ -115,23 +137,36 @@ def ocr_embedded_images(images: Sequence[EmbeddedImage]) -> EmbeddedOcrResult:
     with ThreadPoolExecutor(max_workers=EMBEDDED_OCR_WORKERS) as executor:
         outcomes = list(executor.map(_ocr_one, candidates))
 
-    for image, (lines, attempts, error) in zip(candidates, outcomes):
+    for primary_image, (lines, attempts, error) in zip(candidates, outcomes):
+        digest = hashlib.sha256(primary_image.data).digest()
+        occurrences = occurrences_by_digest[digest]
+
         if error:
-            result.failed.append(image.name)
-            result.report.append({"image": image.name, "status": "failed", "attempts": attempts, "reason": error})
+            result.failed.append(primary_image.name)
+            result.report.append({"image": primary_image.name, "status": "failed", "attempts": attempts, "reason": error})
             continue
-        result.report.append({"image": image.name, "status": "ocr", "attempts": attempts, "lines": len(lines)})
-        for order, (key, text, bbox, word_boxes) in enumerate(lines, start=1):
-            result.blocks.append(ContentBlock(
-                block_id=f"{image.block_prefix}_line_{order}",
-                text=text,
-                slide_number=image.location.get("slide_number"),
-                extraction_method="embedded_image_ocr",
-                metadata={
-                    "kind": "image", "image_name": image.name, "block_order": order,
+        result.report.append({"image": primary_image.name, "status": "ocr", "attempts": attempts, "lines": len(lines)})
+
+        for occurrence in occurrences:
+            page_number = occurrence.location.get("page_number")
+            slide_number = occurrence.location.get("slide_number")
+            for order, item in enumerate(lines, start=1):
+                key, text, bbox = item[0], item[1], item[2]
+                word_boxes = item[3] if len(item) > 3 else None
+                meta = {
+                    "kind": "image", "image_name": occurrence.name, "block_order": order,
                     "source_block_number": key[0], "source_paragraph_number": key[1],
-                    "source_line_number": key[2], "bbox_pixels": bbox, "word_boxes_pixels": word_boxes,
-                    **{k: v for k, v in image.location.items() if k != "slide_number"},
-                },
-            ))
+                    "source_line_number": key[2], "bbox_pixels": bbox,
+                    **{k: v for k, v in occurrence.location.items() if k != "slide_number"},
+                }
+                if word_boxes is not None:
+                    meta["word_boxes_pixels"] = word_boxes
+                result.blocks.append(ContentBlock(
+                    block_id=f"{occurrence.block_prefix}_line_{order}",
+                    text=text,
+                    page_number=page_number,
+                    slide_number=slide_number,
+                    extraction_method="embedded_image_ocr",
+                    metadata=meta,
+                ))
     return result

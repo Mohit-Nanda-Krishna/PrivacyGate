@@ -112,6 +112,161 @@ def test_sanitized_preview_highlights_tokens_and_counts_document_pseudonyms(
     assert any(item.value == "**Identity removed. Relationships preserved.**" for item in app.markdown)
 
 
+def test_results_render_embedded_images_report_and_uninspected_warning() -> None:
+    doc = Document("doc1", "deck.pptx", "pptx", blocks=[
+        ContentBlock("b1", "Slide text", slide_number=1, extraction_method="pptx_native")
+    ], metadata={
+        "slide_count": 1,
+        "embedded_images": [
+            {"image": "image1.png", "status": "skipped_tiny", "reason": "tiny image (48x48) not inspected"},
+            {"image": "image2.png", "status": "ocr", "lines": 2},
+            {"image": "image3.png", "status": "failed", "reason": "corrupted stream"},
+        ],
+        "embedded_images_failed": ["image1.png", "image3.png"],
+        "extraction_warnings": [{"image": "image1.png", "reason": "tiny image (48x48) not OCR'd"}],
+    })
+    sanitized = Document("sanitized", "deck.pptx", "pptx", blocks=[
+        ContentBlock("b1", "Slide text", slide_number=1, extraction_method="pptx_native")
+    ], metadata=dict(doc.metadata))
+    validation = ValidationResult(
+        "BLOCKED",
+        reason="Extraction incomplete: OCR failed for 2 embedded image(s). Their content was not inspected.",
+    )
+    result = PipelineResult(doc, [], sanitized, validation, AuditReport("audit", validation=validation))
+
+    app = AppTest.from_file(str(APP_PATH))
+    app.session_state["pipeline_result"] = result
+    app.run(timeout=30)
+
+    assert not app.exception
+    assert any("Embedded Images" in str(m.value) for m in app.markdown)
+    metrics = {metric.label: metric.value for metric in app.metric}
+    assert metrics["Images OCR'd"] == "1"
+    assert metrics["Images Skipped (Uninspected)"] == "1"
+    assert metrics["Images Failed"] == "1"
+    assert any("inspection incomplete: 1 failed and 1 skipped (uninspected)" in str(e.value) for e in app.error)
+    assert any("image1.png: tiny image (48x48) not OCR'd" in str(c.value) for c in app.caption)
+
+
+def test_results_render_skipped_tiny_image_blocks_gate_warning() -> None:
+    doc = Document("doc1", "Cadence_Financial_Group_Organizational_Pack.pptx", "pptx", blocks=[
+        ContentBlock("b1", "Title", slide_number=1, extraction_method="pptx_native")
+    ], metadata={
+        "slide_count": 1,
+        "embedded_images": [
+            {"image": "image1.png", "status": "skipped_tiny", "reason": "tiny image (48x48) not inspected"},
+        ],
+        "embedded_images_failed": ["image1.png"],
+        "extraction_warnings": [{"image": "image1.png", "reason": "tiny image (48x48) not OCR'd"}],
+    })
+    sanitized = Document("sanitized", "Cadence_Financial_Group_Organizational_Pack.pptx", "pptx", blocks=[
+        ContentBlock("b1", "Title", slide_number=1, extraction_method="pptx_native")
+    ], metadata=dict(doc.metadata))
+    validation = ValidationResult(
+        "BLOCKED",
+        reason="Extraction incomplete: OCR failed for 1 embedded image(s). Their content was not inspected.",
+    )
+    result = PipelineResult(doc, [], sanitized, validation, AuditReport("audit", validation=validation))
+
+    app = AppTest.from_file(str(APP_PATH))
+    app.session_state["pipeline_result"] = result
+    app.run(timeout=30)
+
+    assert not app.exception
+    metrics = {metric.label: metric.value for metric in app.metric}
+    assert metrics["Images OCR'd"] == "0"
+    assert metrics["Images Skipped (Uninspected)"] == "1"
+    assert metrics["Images Failed"] == "0"
+    assert any("skipped without inspection (tiny or vector formats)" in str(e.value) for e in app.error)
+
+
+def test_results_render_48x48_image_approved_gate() -> None:
+    doc = Document("doc1", "deck.pptx", "pptx", blocks=[
+        ContentBlock("b1", "Slide text", slide_number=1, extraction_method="pptx_native"),
+        ContentBlock("b2", "Icon label", slide_number=1, extraction_method="embedded_image_ocr"),
+    ], metadata={
+        "slide_count": 1,
+        "embedded_images": [
+            {"image": "image1.png", "status": "ocr", "lines": 1, "attempts": 1},
+        ],
+        "embedded_images_failed": [],
+        "extraction_warnings": [],
+    })
+    sanitized = Document("sanitized", "deck.pptx", "pptx", blocks=[
+        ContentBlock("b1", "Slide text", slide_number=1, extraction_method="pptx_native"),
+        ContentBlock("b2", "Icon label", slide_number=1, extraction_method="embedded_image_ocr"),
+    ], metadata=dict(doc.metadata))
+    validation = ValidationResult(
+        "APPROVED",
+        reason="Sanitized document passed secondary privacy scan with zero residual PII.",
+    )
+    result = PipelineResult(doc, [], sanitized, validation, AuditReport("audit", validation=validation))
+
+    app = AppTest.from_file(str(APP_PATH))
+    app.session_state["pipeline_result"] = result
+    app.run(timeout=30)
+
+    assert not app.exception
+    metrics = {metric.label: metric.value for metric in app.metric}
+    assert metrics["Images OCR'd"] == "1"
+    assert metrics["Images Skipped (Uninspected)"] == "0"
+    assert metrics["Images Failed"] == "0"
+    assert any("status-badge-approved" in str(m.value) for m in app.markdown)
+
+
+def test_results_render_48x48_image_ocr_failure_blocks_gate() -> None:
+    doc = Document("doc1", "deck.pptx", "pptx", blocks=[
+        ContentBlock("b1", "Slide text", slide_number=1, extraction_method="pptx_native"),
+    ], metadata={
+        "slide_count": 1,
+        "embedded_images": [
+            {"image": "image1.png", "status": "failed", "attempts": 2, "reason": "OCR failed for image image1.png"},
+        ],
+        "embedded_images_failed": ["image1.png"],
+        "extraction_warnings": [],
+    })
+    sanitized = Document("sanitized", "deck.pptx", "pptx", blocks=[
+        ContentBlock("b1", "Slide text", slide_number=1, extraction_method="pptx_native"),
+    ], metadata=dict(doc.metadata))
+    validation = ValidationResult(
+        "BLOCKED",
+        reason="Extraction incomplete: OCR failed for 1 embedded image(s). Their content was not inspected.",
+    )
+    result = PipelineResult(doc, [], sanitized, validation, AuditReport("audit", validation=validation))
+
+    app = AppTest.from_file(str(APP_PATH))
+    app.session_state["pipeline_result"] = result
+    app.run(timeout=30)
+
+    assert not app.exception
+    metrics = {metric.label: metric.value for metric in app.metric}
+    assert metrics["Images OCR'd"] == "0"
+    assert metrics["Images Skipped (Uninspected)"] == "0"
+    assert metrics["Images Failed"] == "1"
+    assert any("OCR failed for 1 embedded image(s)" in str(e.value) for e in app.error)
+    assert any("status-badge-blocked" in str(m.value) for m in app.markdown)
+
+
+def test_results_render_cadence_pptx_approved_with_ocr_image() -> None:
+    cadence_path = Path("docs/Cadence_Financial_Group_Organizational_Pack.pptx")
+    if not cadence_path.exists():
+        pytest.skip("Cadence PPTX not present in docs/")
+    result = run_pipeline(cadence_path)
+    assert result.validation.status == "APPROVED"
+
+    app = AppTest.from_file(str(APP_PATH))
+    app.session_state["pipeline_result"] = result
+    app.run(timeout=30)
+
+    assert not app.exception
+    assert any("status-badge-approved" in str(m.value) for m in app.markdown)
+    metrics = {metric.label: metric.value for metric in app.metric}
+    assert metrics["Images OCR'd"] == "1"
+    assert metrics["Images Skipped (Uninspected)"] == "0"
+    assert metrics["Images Failed"] == "0"
+    assert len(app.error) == 0
+
+
 @pytest.mark.parametrize("status, reason, expected", [
     ("APPROVED", "Configured validation completed.", "APPROVED BY CONFIGURED RESIDUAL VALIDATION CHECKS"),
     ("BLOCKED", "Required OCR failed.", "BLOCKED — NOT APPROVED FOR DOWNSTREAM AI PROCESSING"),
@@ -192,7 +347,6 @@ def test_dashboard_uses_current_results_when_available(monkeypatch) -> None:
     result = PipelineResult(document, [], document, validation, AuditReport("audit", validation=validation))
     app = AppTest.from_file(str(APP_PATH))
     app.session_state["pipeline_result"] = result
-
     app.run(timeout=30)
 
     assert not app.exception
