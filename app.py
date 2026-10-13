@@ -200,7 +200,8 @@ with st.sidebar:
 
     st.markdown("---")
     st.markdown("**Core Security Policy:**")
-    st.caption("• Raw PII never sent downstream\n• Fail-closed enforcement\n• Traceable source coordinates\n• Zero-PII audit logging")
+    st.caption("• Only gate-approved, sanitized text may go downstream\n• Fail-closed on extraction or "
+               "validation errors\n• Traceable source coordinates\n• Audit export holds counts, not raw values")
 
 # File selection logic
 uploaded_files = st.file_uploader(
@@ -719,3 +720,45 @@ if "pipeline_result" in st.session_state and st.session_state["pipeline_result"]
                 "No residual PII was detected, but the privacy gate has not "
                 "approved the document. Review the validation reason above."
             )
+
+        st.markdown("#### Benchmark on the labelled case-study files")
+        # Only measured numbers are shown: they come from scripts/evaluate.py runs against the
+        # labelled Cadence ground truth (eval/), not from this document.
+        benchmark_path = next(
+            (path for path in (Path("eval/results_after.json"), Path("eval/results_before.json")) if path.exists()),
+            None,
+        )
+        if benchmark_path is None:
+            st.info("No benchmark results found. Run `uv run python scripts/evaluate.py --out eval/results_after.md`.")
+        else:
+            benchmark = json.loads(benchmark_path.read_text(encoding="utf-8"))
+            st.caption(
+                f"Measured {benchmark['date']} ({benchmark['label']}) with `scripts/evaluate.py` on the three "
+                "Cadence case-study files against the hand-labelled ground truth in `eval/ground_truth/`. "
+                "These are benchmark results, not measurements of the document above. Definitions: `eval/README.md`."
+            )
+
+            def _fmt(value):
+                return "n/a" if value is None else f"{value * 100:.1f}%"
+
+            total = benchmark["total"]
+            b1, b2, b3, b4 = st.columns(4)
+            b1.metric("Recall (all files)", _fmt(total["recall"]))
+            b2.metric("Precision (all files)", _fmt(total["precision"]))
+            b3.metric("F1 (all files)", _fmt(total["f1"]))
+            b4.metric("Residual PII rate", _fmt(total["residual_rate"]), help="Lower is better.")
+            st.dataframe(
+                pd.DataFrame([{
+                    "File": item["file"],
+                    "Recall": _fmt(item["overall"]["recall"]),
+                    "Precision": _fmt(item["overall"]["precision"]),
+                    "Residual PII": _fmt(item["overall"]["residual_rate"]),
+                    "Structure retention": _fmt(item["structure_retention"]),
+                    "Gate (1 pass)": item["gate_single_pass"],
+                    "Gate (2 passes)": item["gate_multi_pass"],
+                } for item in benchmark["files"]]),
+                use_container_width=True, hide_index=True,
+            )
+            chart = Path("eval/results_chart.png")
+            if chart.exists() and benchmark_path.name == "results_after.json":
+                st.image(str(chart), caption="Before vs after (eval/results_after.md)")

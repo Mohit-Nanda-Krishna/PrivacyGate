@@ -172,6 +172,16 @@ def test_channel_split_uses_extraction_method_and_image_pages():
     assert result.by_channel["image"].recall == 0.0
 
 
+def test_recall_is_split_by_location_type():
+    text = "Owner Zelda Quark; table cell Fred Bloggs"
+    document = _doc(_block("b1", text))
+    rows = [_row("Zelda Quark", location_type="prose"), _row("Fred Bloggs", location_type="table")]
+    result = evaluate_document(document, [_entity("b1", text, "Zelda Quark")], rows)
+    assert result.by_location["prose"].recall == 1.0
+    assert result.by_location["table"].recall == 0.0
+    assert set(result.to_dict()["by_location"]) == {"prose", "table"}
+
+
 def test_load_ground_truth_reads_and_validates_columns(tmp_path: Path):
     path = tmp_path / "gt.csv"
     with open(path, "w", newline="", encoding="utf-8") as handle:

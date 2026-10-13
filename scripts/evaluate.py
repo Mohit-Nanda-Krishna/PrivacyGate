@@ -35,6 +35,7 @@ from privacygate.pipeline import run_pipeline  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 CHANNELS = ("native", "ocr", "image")
+LOCATIONS = ("body", "table", "prose", "image")
 
 
 def percent(value: float | None) -> str:
@@ -122,6 +123,17 @@ def render_markdown(report: dict) -> str:
             score = item["by_channel"].get(channel)
             cells.append("—" if not score else f"{percent(score['recall'])} ({score['detected']}/{score['occurrences']})")
         lines.append(f"| {item['file']} | " + " | ".join(cells) + f" | {item['not_extracted']} |")
+
+    lines += ["", "## Recall by location type", "",
+              "Where the value sits in the source (ground truth `location_type`): body text, tables, "
+              "unlabelled narrative prose, or inside images/figures.", "",
+              "| File | " + " | ".join(LOCATIONS) + " |", "|---|" + "---|" * len(LOCATIONS)]
+    for item in report["files"]:
+        cells = []
+        for location in LOCATIONS:
+            score = item.get("by_location", {}).get(location)
+            cells.append("—" if not score else f"{percent(score['recall'])} ({score['detected']}/{score['occurrences']})")
+        lines.append(f"| {item['file']} | " + " | ".join(cells) + " |")
 
     for item in report["files"]:
         lines += ["", f"## {item['file']}", "",

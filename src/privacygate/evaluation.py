@@ -466,12 +466,15 @@ class DocumentEvaluation:
     fuzzy_matches: int
     uncertain_rows: int
     false_positive_types: dict[str, int]
+    # Recall by where the value sits in the source (ground truth location_type).
+    by_location: dict[str, Score] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, object]:
         return {
             "overall": self.overall.to_dict(),
             "by_type": {key: score.to_dict() for key, score in sorted(self.by_type.items())},
             "by_channel": {key: score.to_dict() for key, score in sorted(self.by_channel.items())},
+            "by_location": {key: score.to_dict() for key, score in sorted(self.by_location.items())},
             "not_extracted": self.not_extracted,
             "fuzzy_matches": self.fuzzy_matches,
             "uncertain_rows": self.uncertain_rows,
@@ -502,7 +505,7 @@ def evaluate_document(
     occurrences = locate_ground_truth(rows, pages, fuzzy=fuzzy)
     spans = entity_page_spans(entities, pages)
 
-    overall, by_type, by_channel = Score(), {}, {}
+    overall, by_type, by_channel, by_location = Score(), {}, {}, {}
     for occurrence in occurrences:
         page_spans = spans.get(occurrence.page, [])
         if occurrence.extracted:
@@ -526,7 +529,8 @@ def evaluate_document(
         if occurrence.row.uncertain:
             continue
         for score in (overall, by_type.setdefault(occurrence.row.entity_type, Score()),
-                      by_channel.setdefault(occurrence.channel, Score())):
+                      by_channel.setdefault(occurrence.channel, Score()),
+                      by_location.setdefault(occurrence.row.location_type or "unknown", Score())):
             score.occurrences += 1
             score.detected += occurrence.detected
             score.residual += not occurrence.fully_redacted
@@ -554,4 +558,5 @@ def evaluate_document(
         fuzzy_matches=sum(o.fuzzy for o in occurrences),
         uncertain_rows=sum(row.uncertain for row in rows),
         false_positive_types=dict(false_positive_types),
+        by_location=by_location,
     )
