@@ -159,7 +159,8 @@ SURNAME_SIMILARITY = 0.85
 MIN_FUZZY_SURNAME = 6
 _SURNAME_TOKEN = re.compile(r"(?<![\w-])[A-Z][A-Za-z'’-]{3,}(?![\w-])")
 # OCR'd initials in front of a name: "H, ", "Y. O, ", "G. & " (a misread "F."), "KC ".
-_INITIALS_BEFORE = re.compile(r"(?<![\w&.,])(?:(?:[A-Z][.,]|&|[A-Z]{1,2})[ \t]){1,3}$")
+# A lower-case letter counts only at the start of a line ("m T. Achebe": OCR read "M." as "m").
+_INITIALS_BEFORE = re.compile(r"(?:(?<![\w&.,])(?:(?:[A-Z][.,]|&|[A-Z]{1,2})[ \t]){1,3}|^[a-z][.,]?[ \t])$")
 
 
 def ocr_surnames(blocks: Sequence[ContentBlock], registry: NameRegistry) -> list[PIIEntity]:

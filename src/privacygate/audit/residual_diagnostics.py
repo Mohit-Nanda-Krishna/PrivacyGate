@@ -85,6 +85,8 @@ _ALLOWED_DETECTORS = frozenset({
     "pattern:ocr_ip",
     "pattern:ocr_dob",
     "context:column_role",
+    "context:wrapped_value",
+    "context:figure_duplicate",
     "pattern:name_with_initial",
     "context:table_header",
     "context:split_phone",

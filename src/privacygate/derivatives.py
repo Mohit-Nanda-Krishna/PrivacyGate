@@ -11,9 +11,11 @@ removed, keeping the page count and layout:
   the detection are converted from rendered pixels to PDF coordinates and
   redacted with PDF_REDACT_IMAGE_PIXELS, so the image pixels underneath are
   destroyed;
-* figures on scanned pages (document.metadata["figure_regions"]): photo
-  and barcode regions are always masked, and a figure whose OCR was not
-  confident enough to trust is masked whole, so no figure is left readable that was not
+* figures on scanned pages (document.metadata["figure_regions"]): in strict
+  mode (mask_all_figures, the default) every figure region is masked whole,
+  because OCR may not have extracted every value in it. Otherwise photo and
+  barcode regions are masked, and a figure whose OCR was not confident enough
+  to trust is masked whole, so no figure is left readable that was not
   scanned for PII;
 * document metadata (title, author, ...) and XMP metadata are cleared.
 
@@ -44,6 +46,7 @@ class RedactedPdf:
     unreadable_figures: int = 0  # figure regions masked whole because their OCR was not trusted
     photos: int = 0  # photo and barcode regions masked
     figure_scan_failures: int = 0  # pages whose figure scan failed (figures there may be unmasked)
+    strict_figures: int = 0  # figure regions masked whole because of strict mode (mask_all_figures)
 
 
 def _pixel_rect(page: pymupdf.Page, box: list[int], dpi: int) -> pymupdf.Rect:
@@ -114,11 +117,18 @@ REVIEW_WATERMARK = "REVIEW COPY - NOT APPROVED BY THE PRIVACY GATE - MAY CONTAIN
 
 def redact_pdf(
     source: str | Path, document: Document, sanitized: Document, watermark: str | None = None,
+    mask_all_figures: bool = True,
 ) -> RedactedPdf:
     """Black out every replaced span of the final sanitized text in a copy of the source PDF.
 
     watermark, if given, is stamped in red at the top of every page (used for
     review copies of documents the privacy gate blocked).
+
+    mask_all_figures (strict mode, the default) masks every detected figure
+    region whole, whatever its OCR confidence: values that OCR could not read
+    in a figure are then hidden too. With False, only unreadable figures are
+    masked whole; readable figures keep their text, with the detected values
+    and photo/barcode regions masked.
     """
     blocks = {block.block_id: block for block in document.blocks}
     final = {block.block_id: block.text for block in sanitized.blocks}
@@ -156,13 +166,15 @@ def redact_pdf(
             if region["bbox_pixels"] is None:
                 report.figure_scan_failures += 1
                 continue
-            masks = [] if region["readable"] else [region["bbox_pixels"]]
-            # Inside an unreadable figure the whole-figure mask already covers the photos.
-            photos = region["photos"] if region["readable"] else []
+            whole = mask_all_figures or not region["readable"]
+            masks = [region["bbox_pixels"]] if whole else []
+            # Inside a figure masked whole, the figure mask already covers the photos.
+            photos = [] if whole else region["photos"]
             for box in masks + photos:
                 page.add_redact_annot(_pixel_rect(page, box, region["render_dpi"]), fill=(0, 0, 0))
                 touched.add(page.number)
-            report.unreadable_figures += len(masks)
+            report.unreadable_figures += not region["readable"]
+            report.strict_figures += bool(mask_all_figures)
             report.photos += len(photos)
             report.boxes += len(masks) + len(photos)
         for number in sorted(touched):
