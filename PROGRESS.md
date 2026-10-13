@@ -628,3 +628,31 @@ coverage, reading order and table cells; DOCX 98.8% / 100% / 99.4%; scanned PDF 
 - Held-out gaps (unseen ID format, wrapped address, OCR-damaged DOB, name only in speaker notes,
   table labels tagged as places) and the extraction gaps recorded above (DOCX content controls,
   the truncated DOCX field, the page-5 table read column by column) remain open.
+
+## Contextual personnel identifier detection (2026-10-13)
+
+### Completed
+
+- Added generalized mixed-letter-and-digit personnel ID recognition and contextual 5–10 digit
+  numeric ID recognition beside employee, staff, personnel, and associate labels and beneath
+  matching table headers. Existing standalone patterns and entity interfaces remain intact.
+- Added an independent contextual residual check so an unredacted ID blocks approval even
+  when the primary detector misses it. Business record/date shapes and issued placeholders
+  retain their existing treatment.
+- Added synthetic tests for detection offsets, provenance, redaction, risk, gate refusal,
+  business references, and placeholders. No held-out documents or ground truth were used.
+
+### Verification
+
+- Focused detection, residual, validation, pseudonym, pipeline, and mock LLM tests:
+  **130 passed** (`uv run --locked pytest -q` with the seven scoped test files).
+- Broad suite excluding `tests/test_holdout.py`, which reads held-out ground truth:
+  **499 passed** (`uv run --locked pytest --ignore=tests/test_holdout.py`).
+- The held-out test and OCR evaluation were not run for this change.
+
+### Known limits and next task
+
+- New contextual recognition covers 5–24 character mixed-letter-and-digit identifiers with
+  up to two hyphen/underscore joins, plus 5–10 digit numeric identifiers. Other separators,
+  shorter IDs, and damaged OCR may still escape it. Generic reference-looking values under
+  a personnel header may cause a false positive. Review these limits before broadening the rule.

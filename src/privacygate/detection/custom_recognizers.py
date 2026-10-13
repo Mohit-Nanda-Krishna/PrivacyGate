@@ -43,6 +43,44 @@ CUSTOM_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
     for entity_type, label, value in CUSTOM_RULES
 )
 
+# A new prefix is meaningful only beside an explicit personnel label or beneath
+# its table column. The old standalone rules above remain deliberately narrow.
+PERSONNEL_LABEL = re.compile(
+    r"\b(?:employee|staff|personnel|associate)[ \t]+(?:id|number|no\.?|code)(?!\w)",
+    re.IGNORECASE,
+)
+_PERSONNEL_VALUE = re.compile(r"(?<![\w-])[A-Za-z0-9]+(?:[-_][A-Za-z0-9]+){0,2}(?![\w-])")
+_BUSINESS_RECORD = re.compile(r"[A-Z]{2,8}-(?:19|20)\d{2}-\d{2,5}", re.IGNORECASE)
+_ISO_TIMESTAMP = re.compile(r"(?:19|20)\d{2}-\d{2}-\d{2}T\d{2}", re.IGNORECASE)
+_AFTER_LABEL = re.compile(r"[ \t]*(?:[:=#][ \t]*)?")
+
+
+def _is_personnel_value(value: str) -> bool:
+    return (
+        (bool(re.fullmatch(r"[0-9]{5,10}", value)) or (
+            5 <= len(value) <= 24
+            and any(char.isalpha() for char in value)
+            and any(char.isdigit() for char in value)
+        ))
+        and not _BUSINESS_RECORD.fullmatch(value)
+        and not _ISO_TIMESTAMP.fullmatch(value)
+    )
+
+
+def personnel_value_spans(text: str) -> list[tuple[int, int]]:
+    """Alphanumeric ID-shaped tokens; callers must supply personnel context."""
+    return [match.span() for match in _PERSONNEL_VALUE.finditer(text) if _is_personnel_value(match.group())]
+
+
+def _labelled_personnel_spans(text: str) -> list[tuple[int, int]]:
+    spans = []
+    for label in PERSONNEL_LABEL.finditer(text):
+        offset = _AFTER_LABEL.match(text, label.end()).end()
+        match = _PERSONNEL_VALUE.match(text, offset)
+        if match and _is_personnel_value(match.group()):
+            spans.append(match.span())
+    return spans
+
 
 @dataclass(frozen=True)
 class EnterprisePattern:
@@ -104,6 +142,13 @@ def detect_custom(
                         "custom:" + entity_type.lower(),
                     )
                 )
+
+    for start, end in _labelled_personnel_spans(content_block.text):
+        if (start, end) not in seen_spans:
+            seen_spans.add((start, end))
+            entities.append(make_entity(
+                content_block, "EMPLOYEE_ID", start, end, 0.95, "custom:employee_id",
+            ))
 
     # 2. Unlabelled personnel identifiers
     for entity_type, pattern in STANDALONE_RULES:
