@@ -8,6 +8,7 @@ from uuid import uuid4
 
 import pymupdf
 
+from privacygate.extraction.embedded import EmbeddedImage, ocr_embedded_images
 from privacygate.extraction.errors import ExtractionError, OCRRequiredError
 from privacygate.extraction.ocr import MIN_TEXT_CHARACTERS, recognize_image, render_page
 from privacygate.models import ContentBlock, Document
@@ -39,7 +40,13 @@ def extract_pdf(path: str | Path) -> Document:
     recorded as failed in metadata["page_report"] / ["ocr_failed_pages"] and the
     other pages are kept; the privacy gate must block such a document. If no
     page yields text, the first page failure is raised. Missing Tesseract always
-    raises OCRRequiredError. Native and OCR text are never combined for a page.
+    raises OCRRequiredError.
+
+    Pages with sufficient native text extract native text blocks and also
+    enumerate and locally OCR embedded raster images (extraction_method
+    "embedded_image_ocr"). Full-page scanned pages do not extract embedded
+    images redundantly. Embedded image extraction/OCR failures are recorded
+    in metadata["embedded_images_failed"] so the privacy gate fails closed.
     """
     path = Path(path)
     try:
@@ -56,6 +63,11 @@ def extract_pdf(path: str | Path) -> Document:
             report: dict[int, dict] = {}
             failures: dict[int, ExtractionError] = {}
             pending: dict[Future, int] = {}
+            embedded_images: list[EmbeddedImage] = []
+            embedded_failures: list[str] = []
+            embedded_reports: list[dict] = []
+            extracted_by_xref: dict[int, dict] = {}
+            failed_xrefs: set[int] = set()
 
             def collect(done) -> None:
                 for future in done:
@@ -87,7 +99,7 @@ def extract_pdf(path: str | Path) -> Document:
                                     "block_order": order,
                                     "source_block_number": source_number,
                                     "bbox": [x0, y0, x1, y1],
-                                },
+                                    },
                             ))
                         if not native:
                             pages_without_text.append(page_number)
@@ -101,6 +113,65 @@ def extract_pdf(path: str | Path) -> Document:
                                 "page": page_number, "status": "native", "attempts": 0,
                                 "seconds": round(time.perf_counter() - started, 2),
                             }
+                            try:
+                                raw_images = page.get_images(full=True)
+                            except Exception:
+                                fail_id = f"page_{page_number}_img_enum"
+                                if fail_id not in embedded_failures:
+                                    embedded_failures.append(fail_id)
+                                    embedded_reports.append(
+                                        {"image": fail_id, "status": "failed", "reason": "could not enumerate images"}
+                                    )
+                                raw_images = []
+
+                            seen_xrefs_on_page: set[int] = set()
+                            for img_index, img_info in enumerate(raw_images, start=1):
+                                try:
+                                    xref = img_info[0]
+                                    if xref in seen_xrefs_on_page:
+                                        continue
+                                    seen_xrefs_on_page.add(xref)
+                                    img_id = f"page_{page_number}_img_{img_index}_xref_{xref}"
+                                    if xref <= 0:
+                                        if img_id not in embedded_failures:
+                                            embedded_failures.append(img_id)
+                                            embedded_reports.append(
+                                                {"image": img_id, "status": "failed", "reason": "invalid image xref"}
+                                            )
+                                        continue
+                                    if xref in failed_xrefs:
+                                        continue
+                                    if xref in extracted_by_xref:
+                                        extracted = extracted_by_xref[xref]
+                                    else:
+                                        extracted = source.extract_image(xref)
+                                        extracted_by_xref[xref] = extracted
+                                    if not extracted or not extracted.get("image"):
+                                        failed_xrefs.add(xref)
+                                        if img_id not in embedded_failures:
+                                            embedded_failures.append(img_id)
+                                            embedded_reports.append(
+                                                {"image": img_id, "status": "failed", "reason": "empty extracted image"}
+                                            )
+                                        continue
+                                    ext = extracted.get("ext") or "png"
+                                    embedded_images.append(EmbeddedImage(
+                                        name=f"{img_id}.{ext}",
+                                        data=extracted["image"],
+                                        block_prefix=img_id,
+                                        location={
+                                            "page_number": page_number,
+                                            "xref": xref,
+                                            "image_index": img_index,
+                                        },
+                                    ))
+                                except Exception:
+                                    fail_id = f"page_{page_number}_img_{img_index}"
+                                    if fail_id not in embedded_failures:
+                                        embedded_failures.append(fail_id)
+                                        embedded_reports.append(
+                                            {"image": fail_id, "status": "failed", "reason": "could not extract image"}
+                                        )
                             continue
                         report[page_number] = {"page": page_number, "status": "pending"}
                         if len(pending) >= OCR_WORKERS:
@@ -123,6 +194,18 @@ def extract_pdf(path: str | Path) -> Document:
                     for future in pending:
                         future.cancel()
 
+            if embedded_images:
+                embedded_result = ocr_embedded_images(embedded_images)
+                for block in embedded_result.blocks:
+                    p_num = block.page_number
+                    if p_num is not None:
+                        page_blocks.setdefault(p_num, []).append(block)
+                embedded_failures.extend(embedded_result.failed)
+                embedded_reports.extend(embedded_result.report)
+                extraction_warnings = embedded_result.warnings
+            else:
+                extraction_warnings = []
+
             for page_number in sorted(page_blocks):
                 document.blocks.extend(page_blocks[page_number])
             if not document.blocks:
@@ -137,6 +220,9 @@ def extract_pdf(path: str | Path) -> Document:
                 "ocr_pages": [entry["page"] for entry in page_report if entry["status"] != "native"],
                 "ocr_failed_pages": sorted(failures),
                 "page_report": page_report,
+                "embedded_images": embedded_reports,
+                "embedded_images_failed": embedded_failures,
+                "extraction_warnings": extraction_warnings,
             }
             return document
     except ExtractionError:

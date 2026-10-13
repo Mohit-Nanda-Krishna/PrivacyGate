@@ -406,13 +406,37 @@ if "pipeline_result" in st.session_state and st.session_state["pipeline_result"]
         if image_report:
             st.markdown("#### Embedded Images")
             image_statuses = [entry["status"] for entry in image_report]
+            ocr_count = image_statuses.count("ocr")
+            skipped_count = sum(s.startswith("skipped") for s in image_statuses)
+            failed_count = image_statuses.count("failed")
+            failed_images = doc.metadata.get("embedded_images_failed") or []
+
             i1, i2, i3 = st.columns(3)
-            i1.metric("Images OCR'd", image_statuses.count("ocr"))
-            i2.metric("Images Skipped", sum(s.startswith("skipped") for s in image_statuses))
-            i3.metric("Images Failed", image_statuses.count("failed"))
-            if "failed" in image_statuses:
-                st.error("OCR failed for some embedded images. Their content was not inspected, "
-                         "so the document cannot be approved.")
+            i1.metric("Images OCR'd", ocr_count)
+            i2.metric("Images Skipped (Uninspected)", skipped_count)
+            i3.metric("Images Failed", failed_count)
+
+            if failed_images:
+                if failed_count > 0 and skipped_count > 0:
+                    st.error(
+                        f"Embedded image inspection incomplete: {failed_count} failed and {skipped_count} "
+                        "skipped (uninspected). Their content was not inspected, so the document cannot be approved."
+                    )
+                elif failed_count > 0:
+                    st.error(
+                        f"OCR failed for {failed_count} embedded image(s). Their content was not inspected, "
+                        "so the document cannot be approved."
+                    )
+                elif skipped_count > 0:
+                    st.error(
+                        f"{skipped_count} embedded image(s) were skipped without inspection (tiny or vector formats). "
+                        "Their content was not inspected, so the document cannot be approved."
+                    )
+                else:
+                    st.error(
+                        f"{len(failed_images)} embedded image(s) could not be inspected. "
+                        "Their content was not inspected, so the document cannot be approved."
+                    )
             with st.expander("Embedded image details and warnings", expanded=False):
                 st.dataframe(
                     pd.DataFrame([{

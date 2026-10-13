@@ -391,15 +391,35 @@ def _covered(text: str, start: int, end: int, spans: Sequence[tuple[int, int, PI
     )
 
 
+
 def _has_residual_character(original: str, sanitized: str, start: int, end: int) -> bool:
-    """Return whether an alphanumeric character from an original span survives sanitization."""
+    """Return whether an original alphanumeric character survives outside a placeholder."""
+    import re
+
     matcher = SequenceMatcher(None, original, sanitized, autojunk=False)
-    for tag, original_start, original_end, _, _ in matcher.get_opcodes():
+    placeholder_spans = [
+        (match.start(), match.end())
+        for match in re.finditer(r"\[[A-Z][A-Z0-9_]*\]", sanitized)
+    ]
+
+    for tag, original_start, original_end, sanitized_start, _ in matcher.get_opcodes():
         if tag != "equal":
             continue
+
         for position in range(max(start, original_start), min(end, original_end)):
-            if original[position].isalnum():
+            if not original[position].isalnum():
+                continue
+
+            sanitized_position = sanitized_start + (position - original_start)
+
+            inside_placeholder = any(
+                left <= sanitized_position < right
+                for left, right in placeholder_spans
+            )
+
+            if not inside_placeholder:
                 return True
+
     return False
 
 
