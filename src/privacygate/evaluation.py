@@ -7,6 +7,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 from pathlib import Path
+import re
 from typing import Sequence
 
 from privacygate.models import ContentBlock, Document, PIIEntity
@@ -391,9 +392,23 @@ def _covered(text: str, start: int, end: int, spans: Sequence[tuple[int, int, PI
     )
 
 
+# Pseudonym tokens and generic placeholders: [PERSON], [PERSON_001], [ACCOUNT_NUMBER_1000].
+_TOKEN = re.compile(r"\[[A-Z][A-Z_]*(?:_\d+)?\]")
+# Stands in for a whole token: not alphanumeric, never present in extracted text.
+_TOKEN_MARK = "\x00"
+
+
 def _has_residual_character(original: str, sanitized: str, start: int, end: int) -> bool:
-    """Return whether an alphanumeric character from an original span survives sanitization."""
-    matcher = SequenceMatcher(None, original, sanitized, autojunk=False)
+    """Return whether a letter or digit of original[start:end] is still present in sanitized.
+
+    Tokens are replaced by one non-alphanumeric marker first, so characters inside
+    "[PERSON_001]" can never be mistaken for surviving characters of the value. The
+    original block is then aligned with the sanitized block and only characters
+    kept *at the position of the value* count; the same value elsewhere in the
+    block is a different occurrence and is judged on its own.
+    """
+    stripped = _TOKEN.sub(_TOKEN_MARK, sanitized)
+    matcher = SequenceMatcher(None, original, stripped, autojunk=False)
     for tag, original_start, original_end, _, _ in matcher.get_opcodes():
         if tag != "equal":
             continue
@@ -403,13 +418,15 @@ def _has_residual_character(original: str, sanitized: str, start: int, end: int)
     return False
 
 
-def _occurrence_block(page: PageText, start: int, end: int) -> tuple[ContentBlock, int, int] | None:
-    """Return the source block and local span when an occurrence fits in one block."""
+def _occurrence_segments(page: PageText, start: int, end: int) -> list[tuple[ContentBlock, int, int]]:
+    """The source block(s) and local spans an occurrence covers (values can wrap across OCR lines)."""
+    segments = []
     for block_start, block in page.spans:
         block_end = block_start + len(block.text)
-        if block_start <= start and end <= block_end:
-            return block, start - block_start, end - block_start
-    return None
+        low, high = max(start, block_start), min(end, block_end)
+        if low < high:
+            segments.append((block, low - block_start, high - block_start))
+    return segments
 
 
 @dataclass
@@ -514,18 +531,14 @@ def evaluate_document(
             if sanitized_blocks is None:
                 occurrence.fully_redacted = _covered(text, occurrence.start, occurrence.end, page_spans)
             else:
-                located = _occurrence_block(pages[occurrence.page], occurrence.start, occurrence.end)
-                if located is None:
-                    occurrence.fully_redacted = False
-                else:
-                    original_block, local_start, local_end = located
-                    sanitized_block = sanitized_blocks.get(original_block.block_id)
-                    occurrence.fully_redacted = (
-                        sanitized_block is not None
-                        and not _has_residual_character(
-                            original_block.text, sanitized_block.text, local_start, local_end,
-                        )
+                segments = _occurrence_segments(pages[occurrence.page], occurrence.start, occurrence.end)
+                occurrence.fully_redacted = bool(segments) and all(
+                    block.block_id in sanitized_blocks
+                    and not _has_residual_character(
+                        block.text, sanitized_blocks[block.block_id].text, local_start, local_end,
                     )
+                    for block, local_start, local_end in segments
+                )
         if occurrence.row.uncertain:
             continue
         for score in (overall, by_type.setdefault(occurrence.row.entity_type, Score()),

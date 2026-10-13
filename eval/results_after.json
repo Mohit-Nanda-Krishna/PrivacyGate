@@ -1,6 +1,6 @@
 {
-  "label": "after fixes (main 163b517)",
-  "date": "2026-10-11",
+  "label": "after fixes (main e14e337 + residual fix)",
+  "date": "2026-10-13",
   "platform": "Windows 10.0.26300, Python 3.11.15",
   "spacy_model": "en_core_web_sm",
   "omp_thread_limit": "1",
@@ -8,7 +8,7 @@
     {
       "file": "Cadence_Financial_Group_Organizational_Pack.pptx",
       "ground_truth_rows": 122,
-      "seconds": 5.1,
+      "seconds": 4.2,
       "blocks_by_method": {
         "pptx_native": 373
       },
@@ -137,7 +137,7 @@
     {
       "file": "Cadence_Group_Risk_Management_Policy__v6.0.pdf",
       "ground_truth_rows": 870,
-      "seconds": 73.8,
+      "seconds": 67.3,
       "blocks_by_method": {
         "ocr": 1880
       },
@@ -368,7 +368,7 @@
     {
       "file": "Cadence_TPRM_Training.docx",
       "ground_truth_rows": 26,
-      "seconds": 36.9,
+      "seconds": 31.9,
       "blocks_by_method": {
         "docx_native": 1285,
         "embedded_image_ocr": 742
