@@ -16,6 +16,7 @@ import argparse
 import json
 import os
 import platform
+import subprocess
 import sys
 import time
 from collections import defaultdict
@@ -68,6 +69,16 @@ def redaction_preservation(item: dict) -> float | None:
     """Reports written before the rename call it "structure_retention"."""
     return item.get("redaction_structure_preservation", item.get("structure_retention"))
 
+def status_counts(entries: object, statuses: tuple[str, ...]) -> dict[str, int]:
+    """Count only fixed operational status values; never report source metadata."""
+    counts = dict.fromkeys(statuses, 0)
+    if type(entries) is list:
+        for entry in entries:
+            status = entry.get("status") if type(entry) is dict else None
+            if status in counts:
+                counts[status] += 1
+    return counts
+
 
 def evaluate_file(csv_path: Path, docs_dir: Path) -> dict:
     rows = load_ground_truth(csv_path)
@@ -83,6 +94,11 @@ def evaluate_file(csv_path: Path, docs_dir: Path) -> dict:
     methods: dict[str, int] = defaultdict(int)
     for block in result.document.blocks:
         methods[block.extraction_method or "unknown"] += 1
+    metadata = result.document.metadata
+    page_statuses = status_counts(metadata.get("page_report"), ("native", "ocr", "failed"))
+    image_statuses = status_counts(metadata.get("embedded_images"), (
+        "ocr", "failed", "skipped_tiny", "skipped_vector",
+    ))
     return {
         "file": source.name,
         "ground_truth_rows": len(rows),
@@ -93,6 +109,24 @@ def evaluate_file(csv_path: Path, docs_dir: Path) -> dict:
         "redaction_structure_preservation": round(
             measure_redaction_structure_preservation(result.document.blocks, result.sanitized_document.blocks), 4),
         "extraction_fidelity": extraction_fidelity(source, result.document),
+        "pipeline": {
+            "detected_count": len(result.entities),
+            "redacted_count": result.audit_report.redacted_count,
+            "residual_detection_count": len(result.validation.residual_entities),
+            "passes_executed": result.passes_executed,
+        },
+        "extraction_coverage": {
+            "pages": page_statuses,
+            "embedded_images": {
+                "attempted": image_statuses["ocr"] + image_statuses["failed"],
+                "succeeded": image_statuses["ocr"],
+                "failed": image_statuses["failed"],
+                "skipped": image_statuses["skipped_tiny"] + image_statuses["skipped_vector"],
+                "skipped_tiny": image_statuses["skipped_tiny"],
+                "skipped_vector": image_statuses["skipped_vector"],
+            },
+            "warning_count": len(metadata.get("extraction_warnings", [])),
+        },
         **evaluation.to_dict(),
     }
 
@@ -146,7 +180,8 @@ def render_markdown(report: dict) -> str:
         f"# PrivacyGate benchmark — {report['label']}",
         "",
         f"Generated {report['date']} with `scripts/evaluate.py` on {report['platform']}; "
-        f"spaCy model `{report['spacy_model']}`; OMP_THREAD_LIMIT={report['omp_thread_limit']}.",
+        f"commit `{report['git_commit']}`; spaCy model `{report['spacy_model']}`; "
+        f"OMP_THREAD_LIMIT={report['omp_thread_limit']}.",
         "",
         "Recall counts every occurrence of a ground truth value in the extracted text "
         "(a value that was never extracted counts as one missed occurrence). Residual = "
@@ -211,10 +246,21 @@ def render_markdown(report: dict) -> str:
                 f"{score['detections']} | {percent(score['precision'])} | {percent(score['f1'])} |"
             )
         fp = ", ".join(f"{k} {v}" for k, v in item["false_positive_types"].items()) or "none"
+        coverage = item["extraction_coverage"]
+        images = coverage["embedded_images"]
         lines += ["", f"False positives by detected type: {fp}. Ground truth rows: {item['ground_truth_rows']} "
                   f"({item['uncertain_rows']} uncertain). Fuzzy (OCR-damaged) matches: {item['fuzzy_matches']}. "
                   f"Blocks by extraction method: "
-                  + ", ".join(f"{k} {v}" for k, v in item["blocks_by_method"].items()) + "."]
+                  + ", ".join(f"{k} {v}" for k, v in item["blocks_by_method"].items()) + ".",
+                  "Pipeline counts: " + ", ".join(
+                      f"{key.replace('_', ' ')} {value}" for key, value in item["pipeline"].items()
+                  ) + ".",
+                  "Extraction coverage: pages " + ", ".join(
+                      f"{key} {value}" for key, value in coverage["pages"].items()
+                  ) + "; embedded images attempted {attempted}, succeeded {succeeded}, failed {failed}, "
+                  "skipped {skipped} (tiny {skipped_tiny}, vector {skipped_vector}); warnings {warnings}.".format(
+                      **images, warnings=coverage["warning_count"],
+                  )]
     return "\n".join(lines) + "\n"
 
 
@@ -255,6 +301,9 @@ def main() -> int:
         "label": args.label or args.out.stem.replace("_", " "),
         "date": date.today().isoformat(),
         "platform": f"{platform.system()} {platform.version()}, Python {platform.python_version()}",
+        "git_commit": subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True, check=False,
+        ).stdout.strip() or "unavailable",
         "spacy_model": presidio_detector.SPACY_MODEL,
         "omp_thread_limit": os.environ.get("OMP_THREAD_LIMIT", ""),
         "files": files,

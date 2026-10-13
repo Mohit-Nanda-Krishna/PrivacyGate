@@ -1,5 +1,8 @@
 """Tests for evaluation metrics and ground truth benchmarks."""
 
+import json
+from pathlib import Path
+
 import pytest
 from privacygate.evaluation import (
     BenchmarkResult,
@@ -66,3 +69,21 @@ def test_redaction_structure_preservation_high() -> None:
 
     retention = measure_redaction_structure_preservation(orig, sanitized)
     assert retention == 1.0  # every block kept in place
+
+
+def test_historical_results_are_safe_aggregate_evaluation_evidence() -> None:
+    report_path = Path(__file__).parents[1] / "eval" / "results_baseline_d85b251.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+
+    assert report["git_commit"] == "d85b2519cf5b35430deb17cb053792bfef6b9552"
+    assert len(report["files"]) == 3
+    assert {item["file"] for item in report["files"]} == {
+        "Cadence_Financial_Group_Organizational_Pack.pptx",
+        "Cadence_Group_Risk_Management_Policy__v6.0.pdf",
+        "Cadence_TPRM_Training.docx",
+    }
+    assert {"recall", "precision", "f1", "residual_rate"} <= report["total"].keys()
+    for item in report["files"]:
+        assert {"detected_count", "redacted_count", "residual_detection_count", "passes_executed"} <= item["pipeline"].keys()
+        assert {"pages", "embedded_images", "warning_count"} <= item["extraction_coverage"].keys()
+        assert "value" not in item

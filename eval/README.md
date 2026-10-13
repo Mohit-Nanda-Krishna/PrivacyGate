@@ -13,6 +13,19 @@ pages, about 2 minutes); the script sets `OMP_THREAD_LIMIT=1` for Tesseract unle
 already set. `--only <csv stem>` limits the run to some files and `--spacy-model` swaps the
 NLP model for one run (the model must already be installed; the locked model is unchanged).
 
+`results_baseline_d85b251.json` and `.md` preserve the benchmark measured on commit
+`d85b251`; they do not measure the current code. The dashboard reads
+`results_current.json` when a fresh run creates it and otherwise shows that historical
+baseline with its commit label. Generate fresh results with:
+
+```
+uv run python scripts/evaluate.py --out eval/results_current.md
+```
+
+The dashboard's residual detection count comes from the live validation scan. The
+benchmark's residual occurrence rate is measured against labelled ground truth; neither
+a zero scan count nor a zero measured rate proves that all PII has been removed.
+
 ## Ground truth files
 
 One CSV per source file, columns:

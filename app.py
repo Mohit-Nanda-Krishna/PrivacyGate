@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 import re
 import tempfile
+from typing import Any
 import pandas as pd
 import streamlit as st
 
@@ -23,6 +24,9 @@ from privacygate.derivatives import REVIEW_WATERMARK, redact_pdf
 from privacygate.llm import GateRefusedError, build_llm_payload, mock_llm_call
 from privacygate.pipeline import run_batch, run_pipeline
 from privacygate.risk.classifier import RISK_MAPPING
+
+EVALUATION_RESULTS_PATH = Path(__file__).with_name("eval") / "results_current.json"
+BASELINE_RESULTS_PATH = Path(__file__).with_name("eval") / "results_baseline_d85b251.json"
 
 st.set_page_config(
     page_title="PrivacyGate — AI Privacy Firewall",
@@ -109,6 +113,20 @@ UI_PLACEHOLDER_PATTERN = re.compile(
     r"(?<!\[)\[(?:" + "|".join(re.escape(name) for name in sorted(set(RISK_MAPPING) | {"PII"}))
     + r")(?:_(?P<number>[0-9]{3,}))?\](?!\])"
 )
+
+
+def load_evaluation_results(path: Path = EVALUATION_RESULTS_PATH) -> dict[str, Any] | None:
+    """Load an aggregate benchmark report if it has the expected shape."""
+    try:
+        report = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return report if type(report) is dict and type(report.get("files")) is list and type(report.get("total")) is dict else None
+
+
+def percent(value: object) -> str:
+    """Format a measured rate without inventing a value for unavailable fields."""
+    return f"{value * 100:.1f}%" if type(value) in (int, float) else "Not available"
 
 
 def highlight_original_block(text: str, block_entities: list[PIIEntity]) -> str:
@@ -323,20 +341,38 @@ if "pipeline_result" in st.session_state and st.session_state["pipeline_result"]
     # Final Decision Banner
     if validation.status == "APPROVED":
         st.markdown(
-            f'<div class="status-badge-approved">✅ PRIVACY GATE PASSED — APPROVED FOR DOWNSTREAM AI PROCESSING<br>'
-            f'<span style="font-size:0.95rem; font-weight:400;">{validation.reason}</span><br>'
-            f'<span style="font-size:0.85rem; font-weight:600; opacity:0.85;">Sanitization Passes: {passes_executed} | Residual PII: 0</span></div>',
+            '<div class="status-badge-approved">✅ APPROVED BY CONFIGURED RESIDUAL VALIDATION CHECKS<br>'
+            f'<span style="font-size:0.95rem; font-weight:400;">{html.escape(validation.reason)}</span><br>'
+            f'<span style="font-size:0.85rem; font-weight:600; opacity:0.85;">Sanitization passes: {passes_executed} | '
+            f'Residual detections: {len(validation.residual_entities)}</span></div>',
             unsafe_allow_html=True,
         )
     else:
         st.markdown(
-            f'<div class="status-badge-blocked">🚫 PRIVACY GATE FAILED — DOCUMENT BLOCKED FROM DOWNSTREAM AI PROCESSING<br>'
-            f'<span style="font-size:0.95rem; font-weight:400;">{validation.reason}</span><br>'
-            f'<span style="font-size:0.85rem; font-weight:600; opacity:0.85;">Sanitization Passes: {passes_executed} | Residual PII: {len(validation.residual_entities)}</span></div>',
+            '<div class="status-badge-blocked">🚫 BLOCKED — NOT APPROVED FOR DOWNSTREAM AI PROCESSING<br>'
+            f'<span style="font-size:0.95rem; font-weight:400;">{html.escape(validation.reason)}</span><br>'
+            f'<span style="font-size:0.85rem; font-weight:600; opacity:0.85;">Sanitization passes: {passes_executed} | '
+            f'Residual detections: {len(validation.residual_entities)}</span></div>',
             unsafe_allow_html=True,
         )
 
-    st.markdown("<br>", unsafe_allow_html=True)
+    page_report = doc.metadata.get("page_report") or []
+    image_report = doc.metadata.get("embedded_images") or []
+    failed_pages = sum(entry.get("status") == "failed" for entry in page_report if type(entry) is dict)
+    failed_images = sum(entry.get("status") == "failed" for entry in image_report if type(entry) is dict)
+    extraction_status = (
+        f"Incomplete — {failed_pages} page(s) and {failed_images} image(s) were not inspected"
+        if failed_pages or failed_images else "Complete"
+    )
+    st.markdown("#### Pipeline status")
+    st.dataframe(pd.DataFrame([
+        {"Stage": "Extraction", "Status": extraction_status},
+        {"Stage": "PII detection", "Status": f"Complete — {len(entities)} detections"},
+        {"Stage": "Risk classification", "Status": "Complete"},
+        {"Stage": "Redaction", "Status": f"Complete — {audit.redacted_count} transformations"},
+        {"Stage": "Residual scan", "Status": f"Complete — {len(validation.residual_entities)} current residual detections"},
+        {"Stage": "Privacy gate", "Status": validation.status},
+    ]), use_container_width=True, hide_index=True)
 
     tab_labels = [
         "📋 1. Extraction Summary",
@@ -591,6 +627,7 @@ if "pipeline_result" in st.session_state and st.session_state["pipeline_result"]
 
     with tab_redaction:
         st.subheader("Semantic Context Redaction Preview")
+        st.markdown("**Identity removed. Relationships preserved.**")
         st.caption("Stable pseudonyms remove identity while preserving relationships for downstream AI.")
         st.caption("Repeated references to the same detected identity reuse the same token, e.g. [PERSON_001].")
 
@@ -602,6 +639,10 @@ if "pipeline_result" in st.session_state and st.session_state["pipeline_result"]
         unique_metric, occurrences_metric = st.columns(2)
         unique_metric.metric("Unique pseudonyms", len(set(pseudonym_tokens)))
         occurrences_metric.metric("Pseudonym occurrences", len(pseudonym_tokens))
+        if pseudonym_tokens:
+            st.caption("Stable tokens observed in this document: " + ", ".join(sorted(set(pseudonym_tokens))[:5]))
+        else:
+            st.caption("This document uses generic semantic placeholders where stable pseudonyms were not issued.")
 
         preview_mode = st.radio(
             "Preview Mode:",
@@ -679,14 +720,11 @@ if "pipeline_result" in st.session_state and st.session_state["pipeline_result"]
         )
 
     with tab_benchmarks:
-        st.subheader("Optiv Case Study Quality Benchmark")
-        st.markdown(
-            """
-            These metrics reflect the current document's processing results.
-            Residual PII is based on the firewall's validation scan. Detection
-            precision and recall, and extraction fidelity, need references and
-            are measured on the labelled case-study files below.
-            """
+        st.subheader("Current-document validation")
+        st.caption(
+            "These results are from the selected document's live processing. Redaction structure preservation "
+            "compares extracted and sanitized blocks. Residual detections come from the configured "
+            "validation scan; zero detections do not prove that no PII remains."
         )
 
         redaction_preservation = measure_redaction_structure_preservation(
@@ -704,11 +742,7 @@ if "pipeline_result" in st.session_state and st.session_state["pipeline_result"]
                  "It does not measure how well extraction captured the file.",
         )
 
-        b2.metric(
-            "Residual PII Count",
-            residual_count,
-            "Target: 0",
-        )
+        b2.metric("Residual Detections", residual_count)
 
         b3.metric(
             "Validation Status",
@@ -722,78 +756,124 @@ if "pipeline_result" in st.session_state and st.session_state["pipeline_result"]
             )
         elif validation.status == "APPROVED":
             st.success(
-                "No residual PII was detected by the validation scan, "
+                "The configured validation scan reported no residual detections, "
                 "and the privacy gate approved the document."
             )
         else:
             st.warning(
-                "No residual PII was detected, but the privacy gate has not "
+                "The configured validation scan reported no residual detections, but the privacy gate has not "
                 "approved the document. Review the validation reason above."
             )
 
-        st.markdown("#### Benchmark on the labelled case-study files")
-        # Only measured numbers are shown: they come from scripts/evaluate.py runs against the
-        # labelled Cadence ground truth (eval/), not from this document.
+        st.subheader("Measured evaluation evidence")
+        st.caption("Ground-truth benchmark results are separate from this document's live validation.")
+        evaluation = load_evaluation_results()
+        if evaluation is None:
+            st.info("No saved local evaluation results are available. After validation, run "
+                    "`uv run python scripts/evaluate.py --out eval/results_current.md` to generate them.")
+            evaluation = load_evaluation_results(BASELINE_RESULTS_PATH)
+            if evaluation is not None:
+                st.markdown("#### Historical baseline — d85b251")
+        else:
+            st.markdown("#### Saved local benchmark")
+        if evaluation is not None:
+            total = evaluation["total"]
+            st.caption(
+                "Measured on supplied Cadence evaluation artifacts; these figures are not live results "
+                "for the selected document. "
+                f"Benchmark commit: {evaluation.get('git_commit', 'unavailable')}. "
+                "The saved run may predate the current working tree. "
+                "A zero residual occurrence rate applies only to the labelled occurrences in this benchmark."
+            )
+            evidence = st.columns(4)
+            evidence[0].metric("Measured recall", percent(total.get("recall")))
+            evidence[1].metric("Measured precision", percent(total.get("precision")))
+            evidence[2].metric("Measured F1", percent(total.get("f1")))
+            evidence[3].metric("Measured residual occurrence rate", percent(total.get("residual_rate")))
+            rows = []
+            coverage_rows = []
+            for item in evaluation["files"]:
+                overall = item.get("overall") or {}
+                rows.append({
+                    "Artifact": item.get("file", "Not available"),
+                    "Recall": percent(overall.get("recall")),
+                    "Precision": percent(overall.get("precision")),
+                    "F1": percent(overall.get("f1")),
+                    "Residual occurrence rate": percent(overall.get("residual_rate")),
+                    "Gate (2 passes)": item.get("gate_multi_pass", "Not available"),
+                    "Not extracted": item.get("not_extracted", "Not available"),
+                    "Runtime": f"{item['seconds']} s" if type(item.get("seconds")) in (int, float) else "Not available",
+                })
+                coverage = item.get("extraction_coverage")
+                if type(coverage) is dict:
+                    pages = coverage.get("pages", {})
+                    images = coverage.get("embedded_images", {})
+                    coverage_rows.append({
+                        "Artifact": item.get("file", "Not available"),
+                        "Native pages": pages.get("native", "Not available"),
+                        "OCR pages": pages.get("ocr", "Not available"),
+                        "Failed pages": pages.get("failed", "Not available"),
+                        "Images attempted": images.get("attempted", "Not available"),
+                        "Images succeeded": images.get("succeeded", "Not available"),
+                        "Images failed": images.get("failed", "Not available"),
+                        "Images skipped": images.get("skipped", "Not available"),
+                        "Extraction warnings": coverage.get("warning_count", "Not available"),
+                    })
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            if coverage_rows:
+                st.markdown("#### OCR and embedded-image coverage")
+                st.dataframe(pd.DataFrame(coverage_rows), use_container_width=True, hide_index=True)
+
+        st.markdown("#### Checked-in case-study benchmark")
         benchmark_path = next(
             (path for path in (Path("eval/results_after.json"), Path("eval/results_before.json")) if path.exists()),
             None,
         )
-        if benchmark_path is None:
+        benchmark = load_evaluation_results(benchmark_path) if benchmark_path else None
+        if benchmark is None:
             st.info("No benchmark results found. Run `uv run python scripts/evaluate.py --out eval/results_after.md`.")
         else:
-            benchmark = json.loads(benchmark_path.read_text(encoding="utf-8"))
             st.caption(
-                f"Measured {benchmark['date']} ({benchmark['label']}) with `scripts/evaluate.py` on the three "
-                "Cadence case-study files against the hand-labelled ground truth in `eval/ground_truth/`. "
-                "These are benchmark results, not measurements of the document above. Definitions: `eval/README.md`."
+                f"Measured {benchmark.get('date', 'unknown')} ({benchmark.get('label', 'unlabelled')}) "
+                "against the labelled case-study files. These are saved measurements, not live results. "
+                "See `eval/README.md` for definitions."
             )
-
-            def _fmt(value):
-                return "n/a" if value is None else f"{value * 100:.1f}%"
-
             total = benchmark["total"]
-            b1, b2, b3, b4 = st.columns(4)
-            b1.metric("Recall (all files)", _fmt(total["recall"]))
-            b2.metric("Precision (all files)", _fmt(total["precision"]))
-            b3.metric("F1 (all files)", _fmt(total["f1"]))
-            b4.metric("Residual PII rate", _fmt(total["residual_rate"]), help="Lower is better.")
-            st.dataframe(
-                pd.DataFrame([{
-                    "File": item["file"],
-                    "Recall": _fmt(item["overall"]["recall"]),
-                    "Precision": _fmt(item["overall"]["precision"]),
-                    "Residual PII": _fmt(item["overall"]["residual_rate"]),
-                    "Redaction structure preservation": _fmt(
-                        item.get("redaction_structure_preservation", item.get("structure_retention"))),
-                    "Gate (1 pass)": item["gate_single_pass"],
-                    "Gate (2 passes)": item["gate_multi_pass"],
-                } for item in benchmark["files"]]),
-                use_container_width=True, hide_index=True,
-            )
-            st.caption("Redaction structure preservation: share of extracted blocks that sanitization kept in place; "
-                       "it does not measure extraction.")
+            metrics = st.columns(4)
+            metrics[0].metric("Recall (all files)", percent(total.get("recall")))
+            metrics[1].metric("Precision (all files)", percent(total.get("precision")))
+            metrics[2].metric("F1 (all files)", percent(total.get("f1")))
+            metrics[3].metric("Residual PII rate", percent(total.get("residual_rate")))
+            st.dataframe(pd.DataFrame([{
+                "File": item["file"],
+                "Recall": percent(item["overall"].get("recall")),
+                "Precision": percent(item["overall"].get("precision")),
+                "Residual PII": percent(item["overall"].get("residual_rate")),
+                "Redaction structure preservation": percent(item.get(
+                    "redaction_structure_preservation", item.get("structure_retention"))),
+                "Gate (1 pass)": item.get("gate_single_pass", "Not available"),
+                "Gate (2 passes)": item.get("gate_multi_pass", "Not available"),
+            } for item in benchmark["files"]]), use_container_width=True, hide_index=True)
+            st.caption("Redaction structure preservation measures whether sanitization kept the extracted blocks in place.")
             fidelity_rows = [item for item in benchmark["files"] if item.get("extraction_fidelity")]
             if fidelity_rows:
                 st.markdown("##### Extraction fidelity")
-                st.dataframe(
-                    pd.DataFrame([{
-                        "File": item["file"],
-                        "Reference": "XML of the file" if item["extraction_fidelity"]["kind"] == "xml_reference"
-                        else "hand transcription, pages " + ", ".join(
-                            str(page["page"]) for page in item["extraction_fidelity"]["pages"]),
-                        "Character coverage": _fmt(item["extraction_fidelity"].get("character_coverage")),
-                        "Reading order": _fmt(item["extraction_fidelity"].get("reading_order",
-                                                                              item["extraction_fidelity"].get("line_order"))),
-                        "Table cells": _fmt(item["extraction_fidelity"].get("table_cells")),
-                        "OCR CER": _fmt(item["extraction_fidelity"].get("cer")),
-                    } for item in fidelity_rows]),
-                    use_container_width=True, hide_index=True,
-                )
+                st.dataframe(pd.DataFrame([{
+                    "File": item["file"],
+                    "Reference": "XML of the file" if item["extraction_fidelity"]["kind"] == "xml_reference"
+                    else "hand transcription, pages " + ", ".join(
+                        str(page["page"]) for page in item["extraction_fidelity"]["pages"]),
+                    "Character coverage": percent(item["extraction_fidelity"].get("character_coverage")),
+                    "Reading order": percent(item["extraction_fidelity"].get(
+                        "reading_order", item["extraction_fidelity"].get("line_order"))),
+                    "Table cells": percent(item["extraction_fidelity"].get("table_cells")),
+                    "OCR CER": percent(item["extraction_fidelity"].get("cer")),
+                } for item in fidelity_rows]), use_container_width=True, hide_index=True)
                 st.markdown(
-                    "- **Character coverage**: share of the reference's letters and digits found in the extracted text.\n"
-                    "- **Reading order**: share of consecutive reference paragraphs/lines found in the same order.\n"
-                    "- **Table cells**: share of reference table cells extracted with the same text at the same row/column.\n"
-                    "- **OCR CER**: character error rate of OCR against hand-transcribed scanned pages (lower is better)."
+                    "- **Character coverage**: share of reference letters and digits found in extracted text.\n"
+                    "- **Reading order**: share of reference paragraphs or lines kept in order.\n"
+                    "- **Table cells**: share of reference cells extracted at the same row and column.\n"
+                    "- **OCR CER**: character error rate against hand transcription (lower is better)."
                 )
             chart = Path("eval/results_chart.png")
             if chart.exists() and benchmark_path.name == "results_after.json":
