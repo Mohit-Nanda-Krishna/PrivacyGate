@@ -1,7 +1,7 @@
 # PrivacyGate benchmark: before vs after
 
-Before: baseline (before fixes) (2026-10-07). After: after fixes (main 163b517) (2026-10-11).
-Both measured with `scripts/evaluate.py` against `eval/ground_truth/` (spaCy `en_core_web_sm`). After = main 163b517 (includes #11, #12, #14). Open PR #13 adds no detection changes: main + #13 measured identical.
+Before: baseline (before fixes) (2026-10-07). After: after fixes (main e14e337 + residual fix) (2026-10-13).
+Both measured with `scripts/evaluate.py` against `eval/ground_truth/` (spaCy `en_core_web_sm`). After = main e14e337 with the residual-evaluation fix.
 
 | File | Recall | Precision | F1 | Residual PII rate | Gate 1 pass | Gate 2 passes |
 |---|---|---|---|---|---|---|
@@ -46,9 +46,9 @@ Body text, tables, unlabelled narrative prose and image-only content (ground tru
 
 | File | Before | After |
 |---|---|---|
-| Cadence_Financial_Group_Organizational_Pack.pptx | 4.8 s | 5.1 s |
-| Cadence_Group_Risk_Management_Policy__v6.0.pdf | 148.1 s | 73.8 s |
-| Cadence_TPRM_Training.docx | 32.7 s | 36.9 s |
+| Cadence_Financial_Group_Organizational_Pack.pptx | 4.8 s | 4.2 s |
+| Cadence_Group_Risk_Management_Policy__v6.0.pdf | 148.1 s | 67.3 s |
+| Cadence_TPRM_Training.docx | 32.7 s | 31.9 s |
 
 ![Before vs after: recall, precision and residual PII rate per file](results_chart.png)
 
@@ -56,7 +56,7 @@ Body text, tables, unlabelled narrative prose and image-only content (ground tru
 
 # Full report (after)
 
-Generated 2026-10-11 with `scripts/evaluate.py` on Windows 10.0.26300, Python 3.11.15; spaCy model `en_core_web_sm`; OMP_THREAD_LIMIT=1.
+Generated 2026-10-13 with `scripts/evaluate.py` on Windows 10.0.26300, Python 3.11.15; spaCy model `en_core_web_sm`; OMP_THREAD_LIMIT=1.
 
 Recall counts every occurrence of a ground truth value in the extracted text (a value that was never extracted counts as one missed occurrence). Residual = occurrences with any character left unredacted. Precision counts detections; detections that only overlap rows marked uncertain are excluded. See `eval/README.md`.
 
@@ -64,9 +64,9 @@ Recall counts every occurrence of a ground truth value in the extracted text (a 
 
 | File | Recall | Precision | F1 | Residual PII rate | Structure retention | Gate (1 pass) | Gate (2 passes) | Runtime |
 |---|---|---|---|---|---|---|---|---|
-| Cadence_Financial_Group_Organizational_Pack.pptx | 100.0% (122/122) | 100.0% (122/122) | 100.0% | 0.0% (0) | 100.0% | APPROVED | APPROVED | 5.1 s |
-| Cadence_Group_Risk_Management_Policy__v6.0.pdf | 92.3% (862/934) | 94.7% (872/921) | 93.5% | 8.5% (79) | 100.0% | BLOCKED | BLOCKED | 73.8 s |
-| Cadence_TPRM_Training.docx | 95.9% (47/49) | 82.1% (46/56) | 88.5% | 6.1% (3) | 100.0% | APPROVED | APPROVED | 36.9 s |
+| Cadence_Financial_Group_Organizational_Pack.pptx | 100.0% (122/122) | 100.0% (122/122) | 100.0% | 0.0% (0) | 100.0% | APPROVED | APPROVED | 4.2 s |
+| Cadence_Group_Risk_Management_Policy__v6.0.pdf | 92.3% (862/934) | 94.7% (872/921) | 93.5% | 8.5% (79) | 100.0% | BLOCKED | BLOCKED | 67.3 s |
+| Cadence_TPRM_Training.docx | 95.9% (47/49) | 82.1% (46/56) | 88.5% | 6.1% (3) | 100.0% | APPROVED | APPROVED | 31.9 s |
 | **All files** | **93.3%** | **94.6%** | **94.0%** | **7.4%** | | | | |
 
 ## Recall by source channel
