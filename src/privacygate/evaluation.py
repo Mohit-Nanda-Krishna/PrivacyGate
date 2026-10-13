@@ -1,4 +1,8 @@
-"""Evaluation and benchmarking metrics for PII detection, redaction, and structure retention."""
+"""Evaluation and benchmarking metrics for PII detection, redaction, and redaction structure preservation.
+
+Extraction fidelity (how much of the source file's structure extraction keeps)
+is measured separately in privacygate.structure.
+"""
 
 from __future__ import annotations
 
@@ -121,14 +125,17 @@ def evaluate_detection(
     return calculate_metrics(tp=tp, fp=fp, fn=fn)
 
 
-def measure_structure_retention(
+def measure_redaction_structure_preservation(
     original_blocks: Sequence[ContentBlock],
     sanitized_blocks: Sequence[ContentBlock],
 ) -> float:
-    """Estimate structure retention between original and sanitized documents.
+    """Redaction structure preservation: share of extracted blocks that sanitization kept in place.
 
-    Measures block alignment, coordinate preservation, and non-empty continuity.
-    Target per PRD Section 26 is >= 80% (0.80).
+    Compares the sanitized blocks with the extracted blocks (same block id,
+    page/slide/paragraph, non-empty text). It says nothing about how faithfully
+    extraction captured the source file: that is extraction fidelity
+    (privacygate.structure). Redaction never drops or moves blocks, so this is
+    normally 100%.
     """
     if not original_blocks:
         return 1.0

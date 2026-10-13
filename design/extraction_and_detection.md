@@ -32,11 +32,17 @@ once with 120 s. A page that still fails is marked `failed` in the per-page repo
 other pages are kept, and the gate blocks the document because that content was not
 inspected.
 
-**Structure retention.** Redaction replaces values inside blocks; it never merges, drops or
-reorders blocks. Every block keeps its id, page/slide/paragraph and metadata, so text before
-and after each value stays in place. `measure_structure_retention` checks block alignment,
-coordinates and non-empty continuity between original and sanitized documents (PRD target
-≥ 80%). This is a structural check; it does not score layout fidelity of the scanned pages.
+**Redaction structure preservation.** Redaction replaces values inside blocks; it never
+merges, drops or reorders blocks. Every block keeps its id, page/slide/paragraph and metadata,
+so text before and after each value stays in place. `measure_redaction_structure_preservation`
+checks block alignment, coordinates and non-empty continuity between the extracted and
+sanitized documents.
+
+**Extraction fidelity.** How much of the source structure extraction keeps is measured
+separately (`privacygate.structure`, PRD target ≥ 80%): DOCX/PPTX against a reference read from
+the file's XML (character coverage, reading order, table-cell preservation), and the scanned
+PDF against hand transcriptions of three pages (OCR character error rate, line order). See
+`eval/README.md`.
 
 ## 3. Detection logic
 

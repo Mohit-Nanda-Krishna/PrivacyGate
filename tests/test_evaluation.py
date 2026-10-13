@@ -6,7 +6,7 @@ from privacygate.evaluation import (
     GroundTruthItem,
     calculate_metrics,
     evaluate_detection,
-    measure_structure_retention,
+    measure_redaction_structure_preservation,
 )
 from privacygate.models import ContentBlock, PIIEntity
 
@@ -54,7 +54,7 @@ def test_evaluate_detection_ground_truth() -> None:
     assert benchmark.f1_score == 1.0
 
 
-def test_measure_structure_retention_high() -> None:
+def test_redaction_structure_preservation_high() -> None:
     orig = [
         ContentBlock(block_id="b1", text="Header", page_number=1),
         ContentBlock(block_id="b2", text="Body text", page_number=1, paragraph_number=2),
@@ -64,5 +64,5 @@ def test_measure_structure_retention_high() -> None:
         ContentBlock(block_id="b2", text="Body [REDACTED]", page_number=1, paragraph_number=2),
     ]
 
-    retention = measure_structure_retention(orig, sanitized)
-    assert retention == 1.0  # 100% structure retention
+    retention = measure_redaction_structure_preservation(orig, sanitized)
+    assert retention == 1.0  # every block kept in place
