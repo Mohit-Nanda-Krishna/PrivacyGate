@@ -60,6 +60,7 @@ _ALLOWED_DETECTORS = frozenset({
     "regex:phone_short",
     "regex:ssn",
     "regex:ssn_last4",
+    "regex:ssn_ocr",
     "regex:ip",
     "regex:iban",
     "regex:credit_card",

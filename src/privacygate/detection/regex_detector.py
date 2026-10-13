@@ -118,6 +118,11 @@ CONTEXT_PATTERNS: tuple[tuple[str, re.Pattern[str], float, str], ...] = (
      0.85, "regex:ssn_last4"),
     ("GOVERNMENT_ID", re.compile(r"(?i:\b(?:social\s+security(?:\s+number)?|SSN)\s*)\((?P<value>\d{4})\)"),
      0.85, "regex:ssn_last4"),
+    # OCR-damaged SSN next to its label: dots or spaces for hyphens, a dropped digit
+    # ("SSN 90.42.7781"). Only with the label, so plain number groups are untouched.
+    ("GOVERNMENT_ID", re.compile(r"(?i:\b(?:SSN|social\s+security(?:\s+(?:no\.?|number))?)\b)[\s:#]*"
+                                 r"(?P<value>\d{2,3}[\s.,-]{1,2}\d{2}[\s.,-]{1,2}\d{3,4})(?![\d])"),
+     0.9, "regex:ssn_ocr"),
     ("DATE_OF_BIRTH", re.compile(rf"(?i:\b(?:DOB|D\.O\.B\.?|date\s+of\s+birth|born(?:\s+on)?)\b)[\s:,-]*"
                                  rf"(?P<value>{_DATE})"), 0.9, "regex:dob"),
     # "card ending 2218", "savings account ending in 7741": only the digits are PII.
@@ -133,7 +138,8 @@ CONTEXT_PATTERNS: tuple[tuple[str, re.Pattern[str], float, str], ...] = (
 # Organisation e-mail domains whose OCR-damaged forms are still matched,
 # e.g. "cadencetg.com" or a local part fused to the domain after a lost "@".
 ORG_EMAIL_DOMAINS: tuple[str, ...] = ("cadencefg.com",)
-_OCR_CONFUSIONS = {"c": "[ce(]", "f": "[ft]", "o": "[o0]", "l": "[l1I|]", "i": "[il1|]", "m": "(?:m|rn)",
+# "m" is often read as "rn", "r" or "n" at a line end: ".com" -> ".cor", ".con".
+_OCR_CONFUSIONS = {"c": "[ce(]", "f": "[ft]", "o": "[o0]", "l": "[l1I|]", "i": "[il1|]", "m": "(?:m|rn|r|n)",
                    "e": "[ec]", "g": "[gq9]", ".": r"[.,]"}
 
 
