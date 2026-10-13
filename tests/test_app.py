@@ -1,6 +1,7 @@
 """Tests for Streamlit user interface."""
 
 from pathlib import Path
+import json
 import re
 import runpy
 
@@ -16,6 +17,8 @@ from privacygate.pipeline import PipelineResult, run_pipeline
 
 APP_PATH = Path(__file__).parents[1] / "app.py"
 FIXTURES = Path(__file__).parent / "fixtures"
+CURRENT_RESULTS = Path(__file__).parents[1] / "eval" / "results_current.json"
+BASELINE_RESULTS = Path(__file__).parents[1] / "eval" / "results_baseline_d85b251.json"
 
 
 def test_streamlit_app_loads_successfully() -> None:
@@ -106,3 +109,105 @@ def test_sanitized_preview_highlights_tokens_and_counts_document_pseudonyms(
     assert metrics["Pseudonym occurrences"] == str(occurrences)
     assert any(item.value == "Stable pseudonyms remove identity while preserving relationships for downstream AI."
                for item in app.caption)
+    assert any(item.value == "**Identity removed. Relationships preserved.**" for item in app.markdown)
+
+
+@pytest.mark.parametrize("status, reason, expected", [
+    ("APPROVED", "Configured validation completed.", "APPROVED BY CONFIGURED RESIDUAL VALIDATION CHECKS"),
+    ("BLOCKED", "Required OCR failed.", "BLOCKED — NOT APPROVED FOR DOWNSTREAM AI PROCESSING"),
+])
+def test_dashboard_presents_actual_privacy_decision(status, reason, expected) -> None:
+    metadata = {"page_report": [{"page": 1, "status": "failed"}]} if status == "BLOCKED" else {}
+    document = Document("source", "synthetic.pdf", "pdf", metadata=metadata, blocks=[ContentBlock("b1", "Safe")])
+    validation = ValidationResult(status, reason)
+    result = PipelineResult(
+        document, [], document, validation,
+        AuditReport("audit", validation=validation),
+    )
+    app = AppTest.from_file(str(APP_PATH))
+    app.session_state["pipeline_result"] = result
+
+    app.run(timeout=30)
+
+    assert not app.exception
+    rendered = "\n".join(str(item.value) for item in app.markdown)
+    assert expected in rendered
+    assert reason in rendered
+    assert "Pipeline status" in rendered
+
+
+def test_dashboard_separates_live_validation_from_historical_evaluation(monkeypatch) -> None:
+    report = json.loads(BASELINE_RESULTS.read_text(encoding="utf-8"))
+    original_read_text = Path.read_text
+
+    def read_without_current_results(path, *args, **kwargs):
+        if path == CURRENT_RESULTS:
+            raise FileNotFoundError(path)
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", read_without_current_results)
+    document = Document("source", "synthetic.pdf", "pdf", blocks=[ContentBlock("b1", "Safe")])
+    validation = ValidationResult("APPROVED")
+    result = PipelineResult(document, [], document, validation, AuditReport("audit", validation=validation))
+    app = AppTest.from_file(str(APP_PATH))
+    app.session_state["pipeline_result"] = result
+
+    app.run(timeout=30)
+
+    metrics = {metric.label: metric.value for metric in app.metric}
+    assert metrics["Redaction structure preservation"] == "100.0%"
+    assert metrics["Residual Detections"] == "0"
+    assert metrics["Measured recall"] == f"{report['total']['recall'] * 100:.1f}%"
+    assert metrics["Measured precision"] == f"{report['total']['precision'] * 100:.1f}%"
+    assert metrics["Measured F1"] == f"{report['total']['f1'] * 100:.1f}%"
+    assert metrics["Measured residual occurrence rate"] == f"{report['total']['residual_rate'] * 100:.1f}%"
+    markdown = "\n".join(str(item.value) for item in app.markdown)
+    captions = "\n".join(str(item.value) for item in app.caption)
+    subheaders = "\n".join(str(item.value) for item in app.subheader)
+    assert "Current-document validation" in subheaders
+    assert "Historical baseline" in markdown
+    assert "Measured evaluation evidence" in subheaders
+    assert "zero detections do not prove that no PII remains" in captions
+    assert "not live results for the selected document" in captions
+    assert report["git_commit"] in captions
+    assert any("No saved local evaluation results are available" in str(item.value) for item in app.info)
+    assert len(app.dataframe) >= 3  # pipeline status, per-artifact metrics, extraction coverage
+    assert "Target:" not in markdown
+
+
+def test_dashboard_uses_current_results_when_available(monkeypatch) -> None:
+    report = json.loads(BASELINE_RESULTS.read_text(encoding="utf-8"))
+    report["git_commit"] = "85c48f7"
+    report["total"]["recall"] = 0.75
+    original_read_text = Path.read_text
+
+    def read_with_current_results(path, *args, **kwargs):
+        if path == CURRENT_RESULTS:
+            return json.dumps(report)
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", read_with_current_results)
+    document = Document("source", "synthetic.pdf", "pdf", blocks=[ContentBlock("b1", "Safe")])
+    validation = ValidationResult("APPROVED")
+    result = PipelineResult(document, [], document, validation, AuditReport("audit", validation=validation))
+    app = AppTest.from_file(str(APP_PATH))
+    app.session_state["pipeline_result"] = result
+
+    app.run(timeout=30)
+
+    assert not app.exception
+    metrics = {metric.label: metric.value for metric in app.metric}
+    assert metrics["Measured recall"] == "75.0%"
+    markdown = "\n".join(str(item.value) for item in app.markdown)
+    assert "Saved local benchmark" in markdown
+    assert "Historical baseline" not in markdown
+    assert any("85c48f7" in str(item.value) for item in app.caption)
+
+
+def test_dashboard_removes_absolute_benchmark_claims() -> None:
+    source = APP_PATH.read_text(encoding="utf-8")
+    for claim in (
+        "Zero Residual PII Guarantee", "Structure Retention 100%", "Residual PII Leakage",
+        "Deterministic Overlap Rate", "Zero-PII audit logging",
+    ):
+        assert claim not in source

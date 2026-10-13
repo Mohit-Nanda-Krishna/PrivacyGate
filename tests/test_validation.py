@@ -44,6 +44,66 @@ def test_validate_privacy_blocked_on_residual_pii() -> None:
     assert "Residual PII detected" in result.reason
 
 
+def test_unresolved_image_ocr_name_candidate_requires_review(monkeypatch) -> None:
+    monkeypatch.setattr("privacygate.validation.privacy_gate.detect_pii", lambda document: [])
+    block = ContentBlock(
+        "image_line", "Quilla Marsh", extraction_method="embedded_image_ocr",
+        metadata={"kind": "image", "image_name": "synthetic.png"},
+    )
+
+    result = validate_privacy(Document("source", "synthetic.docx", "docx", blocks=[block]))
+
+    assert result.status == "BLOCKED"
+    assert result.residual_entities == []  # Candidate needs review, not automatic redaction.
+    assert "review" in result.reason.lower()
+    assert "Quilla Marsh" not in result.reason
+
+
+def test_prior_users_ocr_line_requires_review_without_automatic_redaction(monkeypatch) -> None:
+    monkeypatch.setattr("privacygate.validation.privacy_gate.detect_pii", lambda document: [])
+    blocks = [
+        ContentBlock("label", "Users", extraction_method="embedded_image_ocr",
+                     metadata={"kind": "image", "source_block_number": 1, "source_paragraph_number": 1,
+                               "source_line_number": 1}),
+        ContentBlock("candidate", "XT Fenwick", extraction_method="embedded_image_ocr",
+                     metadata={"kind": "image", "source_block_number": 1, "source_paragraph_number": 1,
+                               "source_line_number": 2}),
+    ]
+
+    result = validate_privacy(Document("source", "synthetic.docx", "docx", blocks=blocks))
+
+    assert result.status == "BLOCKED"
+    assert result.residual_entities == []
+    assert blocks[1].text == "XT Fenwick"
+
+
+def test_unrelated_users_label_does_not_resolve_ambiguous_ocr_candidate(monkeypatch) -> None:
+    monkeypatch.setattr("privacygate.validation.privacy_gate.detect_pii", lambda document: [])
+    blocks = [
+        ContentBlock("label", "Users", extraction_method="embedded_image_ocr",
+                     metadata={"kind": "image", "source_block_number": 1}),
+        ContentBlock("candidate", "KC Burnley", extraction_method="embedded_image_ocr",
+                     metadata={"kind": "image", "source_block_number": 15}),
+    ]
+
+    result = validate_privacy(Document("source", "synthetic.docx", "docx", blocks=blocks))
+
+    assert result.status == "BLOCKED"
+    assert result.residual_entities == []
+    assert blocks[1].text == "KC Burnley"
+
+
+@pytest.mark.parametrize("text", ["Vendor Risk", "Quarterly Review", "Privacy Shield"])
+def test_benign_capitalized_image_text_can_pass_review_check(monkeypatch, text) -> None:
+    monkeypatch.setattr("privacygate.validation.privacy_gate.detect_pii", lambda document: [])
+    block = ContentBlock("image_line", text, extraction_method="embedded_image_ocr",
+                         metadata={"kind": "image"})
+
+    result = validate_privacy(Document("source", "synthetic.docx", "docx", blocks=[block]))
+
+    assert result.status == "APPROVED"
+
+
 def test_validate_privacy_fails_closed_on_error(monkeypatch) -> None:
     # Injected detector failure
     def mock_detect_pii_error(doc):
