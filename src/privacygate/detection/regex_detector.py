@@ -24,6 +24,41 @@ def _luhn_checksum(card_number: str) -> bool:
     return checksum % 10 == 0
 
 
+# Issuer prefix ranges and lengths of the major card schemes. Luhn alone accepts
+# about 1 in 10 random digit strings; requiring a real issuer prefix and length
+# keeps long reference and account numbers from being read as card numbers.
+_CARD_SCHEMES: tuple[tuple[tuple[str, ...], tuple[int, ...]], ...] = (
+    (("4",), (13, 16, 19)),  # Visa
+    (tuple(str(p) for p in range(51, 56)) + tuple(str(p) for p in range(2221, 2721)), (16,)),  # Mastercard
+    (("34", "37"), (15,)),  # American Express
+    (("6011", "65") + tuple(str(p) for p in range(644, 650)), (16, 17, 18, 19)),  # Discover
+    (tuple(str(p) for p in range(3528, 3590)), (16, 17, 18, 19)),  # JCB
+    (("36", "38", "39") + tuple(str(p) for p in range(300, 306)), (14, 15, 16, 17, 18, 19)),  # Diners
+    (("62",), (16, 17, 18, 19)),  # UnionPay
+)
+
+
+def _card_issuer_ok(card_number: str) -> bool:
+    digits = "".join(c for c in card_number if c.isdigit())
+    return any(
+        len(digits) in lengths and digits.startswith(prefixes)
+        for prefixes, lengths in _CARD_SCHEMES
+    )
+
+
+_PESEL_WEIGHTS = (1, 3, 7, 9, 1, 3, 7, 9, 1, 3)
+
+
+def _pesel_valid(value: str) -> bool:
+    """PESEL check digit and an encodable birth date (century is carried in the month)."""
+    if len(value) != 11 or not value.isdigit():
+        return False
+    if (10 - sum(int(d) * w for d, w in zip(value, _PESEL_WEIGHTS)) % 10) % 10 != int(value[10]):
+        return False
+    month, day = int(value[2:4]), int(value[4:6])
+    return month % 20 in range(1, 13) and month // 20 in range(5) and 1 <= day <= 31
+
+
 EMAIL_PATTERN = re.compile(
     r"(?<![\w.@%+-])[A-Z0-9_%+-]+(?:\.[A-Z0-9_%+-]+)*@"
     r"[A-Z0-9](?:[A-Z0-9-]*[A-Z0-9])?"
@@ -73,6 +108,11 @@ CONTEXT_PATTERNS: tuple[tuple[str, re.Pattern[str], float, str], ...] = (
     ("GOVERNMENT_ID", re.compile(r"(?i:\bpassport(?:\s+(?:no\.?|number|#))?)[\s:#]*(?P<value>[A-Z]{1,2}\d{6,8})\b"),
      0.9, "regex:passport"),
     ("GOVERNMENT_ID", re.compile(r"(?i:\bPESEL)[\s:#]*(?P<value>\d{6}[\dXx]{5})\b"), 0.9, "regex:pesel"),
+    # US TIN/EIN only with a label: "12-3456789" alone is indistinguishable from
+    # reference numbers. ITINs (9xx-xx-xxxx) are already caught by the SSN rule.
+    ("GOVERNMENT_ID", re.compile(r"(?i:\b(?:TIN|EIN|FEIN|tax\s*(?:payer\s*)?(?:id(?:entification)?)"
+                                 r"(?:\s*(?:no\.?|number|#))?)\b)[\s:#.-]*(?P<value>\d{2}-?\d{7})(?![\d-])"),
+     0.95, "regex:tin"),  # above the generic phone match (0.90) on the same digits
     # "last four digits of your social security number (8827)".
     ("GOVERNMENT_ID", re.compile(r"(?i:\blast\s+(?:four|4)\s+digits\b)[^.\n]{0,60}?\(?(?P<value>\d{4})\)?(?![\d-])"),
      0.85, "regex:ssn_last4"),
@@ -138,6 +178,7 @@ def detect_regex(block: ContentBlock | str, block_id: str = "") -> list[PIIEntit
     text = content_block.text
     entities: list[PIIEntity] = []
     seen_spans: set[tuple[int, int]] = set()
+    typed_spans: set[tuple[tuple[int, int], str]] = set()
 
     # 1. Email (including internal domain support)
     for match in EMAIL_PATTERN.finditer(text):
@@ -203,8 +244,11 @@ def detect_regex(block: ContentBlock | str, block_id: str = "") -> list[PIIEntit
             if entity_type == "PHONE_NUMBER" and sum(c.isdigit() for c in value) < 7:
                 continue
             span = match.span("value")
-            if span not in seen_spans:
+            # Label-confirmed identifiers (TIN, PESEL, passport ...) must not be shadowed by a
+            # generic phone match on the same digits; the merger keeps the more specific type.
+            if span not in seen_spans or (entity_type != "PHONE_NUMBER" and (span, entity_type) not in typed_spans):
                 seen_spans.add(span)
+                typed_spans.add((span, entity_type))
                 entities.append(make_entity(content_block, entity_type, span[0], span[1], confidence, detector))
 
     # 8. OCR-damaged organisation e-mail addresses
@@ -214,10 +258,19 @@ def detect_regex(block: ContentBlock | str, block_id: str = "") -> list[PIIEntit
             seen_spans.add(span)
             entities.append(make_entity(content_block, "EMAIL_ADDRESS", span[0], span[1], 0.8, "regex:email_ocr"))
 
-    # 9. Credit Cards (Luhn verified)
+    # 9. Unlabelled PESEL: 11 digits passing the PESEL checksum and date rules
+    for match in re.finditer(r"(?<![\d-])\d{11}(?![\d-])", text):
+        span = match.span()
+        if _pesel_valid(match.group()) and (span, "GOVERNMENT_ID") not in typed_spans:
+            seen_spans.add(span)
+            typed_spans.add((span, "GOVERNMENT_ID"))
+            # Above the generic phone match (0.90) on the same digits, so the merger keeps PESEL.
+            entities.append(make_entity(content_block, "GOVERNMENT_ID", span[0], span[1], 0.95, "regex:pesel_checksum"))
+
+    # 10. Credit Cards (Luhn verified, real issuer prefix and length)
     for match in CREDIT_CARD_CANDIDATE.finditer(text):
         val = match.group()
-        if _luhn_checksum(val):
+        if _luhn_checksum(val) and _card_issuer_ok(val):
             span = (match.start(), match.end())
             if span not in seen_spans:
                 seen_spans.add(span)
