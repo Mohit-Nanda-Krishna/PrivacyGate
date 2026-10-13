@@ -1,6 +1,6 @@
-# PrivacyGate benchmark — held-out (main 7ba5ca4 + #20, #21, #22)
+# PrivacyGate benchmark — held-out (main 80b5b46)
 
-Generated 2026-10-13 with `scripts/evaluate.py` on Windows 10.0.26300, Python 3.11.15; spaCy model `en_core_web_sm`; OMP_THREAD_LIMIT=1.
+Generated 2026-10-13 with `scripts/evaluate.py` on Windows 10.0.26300, Python 3.11.15; commit `80b5b46158615d1c82a58a5bc303ff3fd5fd214c`; spaCy model `en_core_web_sm`; OMP_THREAD_LIMIT=1.
 
 Recall counts every occurrence of a ground truth value in the extracted text (a value that was never extracted counts as one missed occurrence). Residual = occurrences with any character left unredacted. Precision counts detections; detections that only overlap rows marked uncertain are excluded. See `eval/README.md`.
 
@@ -8,9 +8,9 @@ Recall counts every occurrence of a ground truth value in the extracted text (a 
 
 | File | Recall | Precision | F1 | Residual PII rate | Redaction structure preservation | Gate (1 pass) | Gate (2 passes) | Runtime |
 |---|---|---|---|---|---|---|---|---|
-| holdout_deck.pptx | 90.0% (9/10) | 81.8% (9/11) | 85.7% | 10.0% (1) | 100.0% | APPROVED | APPROVED | 0.6 s |
-| holdout_memo.docx | 78.6% (11/14) | 100.0% (11/11) | 88.0% | 21.4% (3) | 100.0% | APPROVED | APPROVED | 0.6 s |
-| holdout_scan.pdf | 76.5% (13/17) | 92.9% (13/14) | 83.9% | 29.4% (5) | 100.0% | APPROVED | APPROVED | 8.7 s |
+| holdout_deck.pptx | 90.0% (9/10) | 81.8% (9/11) | 85.7% | 10.0% (1) | 100.0% | APPROVED | APPROVED | 0.9 s |
+| holdout_memo.docx | 78.6% (11/14) | 100.0% (11/11) | 88.0% | 21.4% (3) | 100.0% | BLOCKED | BLOCKED | 0.8 s |
+| holdout_scan.pdf | 76.5% (13/17) | 92.9% (13/14) | 83.9% | 29.4% (5) | 100.0% | APPROVED | APPROVED | 9.3 s |
 | **All files** | **80.5%** | **91.7%** | **85.7%** | **21.9%** | | | | |
 
 Redaction structure preservation: share of extracted blocks that sanitization kept in place (same id, location, non-empty text); it does not measure extraction.
@@ -59,6 +59,8 @@ Where the value sits in the source (ground truth `location_type`): body text, ta
 | PHONE | 3 | 100.0% | 0 | 3 | 100.0% | 100.0% |
 
 False positives by detected type: LOCATION 2. Ground truth rows: 10 (0 uncertain). Fuzzy (OCR-damaged) matches: 0. Blocks by extraction method: pptx_native 17.
+Pipeline counts: detected count 11, redacted count 11, residual detection count 0, passes executed 1.
+Extraction coverage: pages native 0, ocr 0, failed 0; embedded images attempted 0, succeeded 0, failed 0, skipped 0 (tiny 0, vector 0); warnings 0.
 
 ## holdout_memo.docx
 
@@ -70,6 +72,8 @@ False positives by detected type: LOCATION 2. Ground truth rows: 10 (0 uncertain
 | PHONE | 1 | 100.0% | 0 | 1 | 100.0% | 100.0% |
 
 False positives by detected type: none. Ground truth rows: 12 (0 uncertain). Fuzzy (OCR-damaged) matches: 0. Blocks by extraction method: docx_native 18, embedded_image_ocr 5.
+Pipeline counts: detected count 11, redacted count 11, residual detection count 0, passes executed 1.
+Extraction coverage: pages native 0, ocr 0, failed 0; embedded images attempted 1, succeeded 1, failed 0, skipped 0 (tiny 0, vector 0); warnings 0.
 
 ## holdout_scan.pdf
 
@@ -86,3 +90,5 @@ False positives by detected type: none. Ground truth rows: 12 (0 uncertain). Fuz
 | PHONE | 3 | 100.0% | 0 | 3 | 100.0% | 100.0% |
 
 False positives by detected type: DATE_OF_BIRTH 1. Ground truth rows: 12 (0 uncertain). Fuzzy (OCR-damaged) matches: 0. Blocks by extraction method: figure_ocr 4, ocr 15.
+Pipeline counts: detected count 14, redacted count 14, residual detection count 0, passes executed 1.
+Extraction coverage: pages native 0, ocr 1, failed 0; embedded images attempted 0, succeeded 0, failed 0, skipped 0 (tiny 0, vector 0); warnings 0.

@@ -462,7 +462,7 @@ This phase measured them and superseded those claims with the numbers below.
   The Quality Benchmark tab keeps the per-document metrics from #14 and adds the measured
   benchmark from `eval/`; hard-coded quality figures were removed from the app and README.
 
-### Results (`eval/results_after.md`)
+### Results (historical, 2026-10-08; superseded by the 2026-10-13 refresh at the end of this file)
 
 After = main `163b517` (includes #11, #12, #14). Open PR #13 changes no detection: main + #13 measured identical.
 
@@ -587,3 +587,44 @@ and decide whether standalone NER LOCATION should be kept.
 ### Known issue and next task
 
 - The saved local benchmark is older than the merged code. Rerun the benchmark to measure this branch, and inspect the new held-out results before drawing general privacy claims.
+
+## Results refresh on main 80b5b46 (2026-10-13)
+
+### Completed
+
+- One `scripts/evaluate.py` run on main `80b5b46` (#19-#27 merged) wrote `eval/results_current.*`
+  (dashboard) and `eval/results_after.*` (before/after against the 2026-10-07 baseline, with
+  `eval/results_chart.png`); the held-out set was rerun into `eval/holdout/results.*`.
+- `eval/README.md` and `README.md` point to these files; no figures are copied elsewhere.
+
+### Results
+
+| File | Recall | Precision | Residual PII rate | Gate 1 pass / 2 passes |
+|---|---|---|---|---|
+| Org pack (PPTX) | 100.0% | 100.0% | 0.0% | APPROVED / APPROVED |
+| Risk policy (PDF, 35 scanned pages) | 97.4% | 94.4% | 2.5% | APPROVED / APPROVED |
+| TPRM training (DOCX) | 100.0% | 82.8% | 0.0% | BLOCKED / BLOCKED |
+| All files | 97.7% | 94.4% | 2.2% | |
+| Held-out (3 files, not tuned on) | 80.5% | 91.7% | 21.9% | |
+
+PDF recall by channel: scanned text 99.1%, figures 82.7%. Extraction fidelity: PPTX 100% character
+coverage, reading order and table cells; DOCX 98.8% / 100% / 99.4%; scanned PDF 0.2% OCR CER and
+82.5% line order on the three transcribed pages.
+
+### Verification
+
+- `uv run pytest -q`: **437 passed** on main `80b5b46`.
+
+### Known issues
+
+- **26 PDF values are never extracted** (the PDF's whole residual). 18 are inside figures and
+  are masked in the redacted PDF by the default "Mask all figures" option. 8 are in body text
+  and tables (pages 22, 23, 26 and 31; 6 PERSON, 2 PHONE): they are not in the text sent to the
+  model, but **they stay visible in the redacted PDF**.
+- **The DOCX is BLOCKED on both passes with 0% measured residual**, by the #27 review rule for
+  person-shaped text in embedded-image OCR: 52 candidates, of which 29 are UI labels and
+  controls, 17 business/system terms, 6 OCR fragments or avatar initials and 0 real names
+  (`eval/README.md`). Whether to tune the rule is open; it was not changed.
+- Held-out gaps (unseen ID format, wrapped address, OCR-damaged DOB, name only in speaker notes,
+  table labels tagged as places) and the extraction gaps recorded above (DOCX content controls,
+  the truncated DOCX field, the page-5 table read column by column) remain open.

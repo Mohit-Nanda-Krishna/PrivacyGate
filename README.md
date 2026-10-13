@@ -149,8 +149,11 @@ Quality is measured, not asserted: `scripts/evaluate.py` runs the pipeline on th
 files and scores it against hand-labelled ground truth in `eval/ground_truth/`.
 
 ```bash
-uv run python scripts/evaluate.py --out eval/results_after.md --label "after"
+uv run python scripts/evaluate.py --out eval/results_current.md --label "current"
+# copy eval/results_current.json to eval/results_after.json, then:
 uv run python scripts/compare_results.py   # before/after tables + eval/results_chart.png
+uv run python scripts/evaluate.py --ground-truth eval/holdout/ground_truth \
+    --docs eval/holdout/docs --out eval/holdout/results.md --label "held-out"
 ```
 
 - **Recall**: share of labelled PII occurrences that were detected
@@ -164,5 +167,8 @@ uv run python scripts/compare_results.py   # before/after tables + eval/results_
 - **Redaction structure preservation**: share of extracted blocks that sanitization kept in
   place (id, location, non-empty text); it does not measure extraction
 
-Current numbers, the before/after comparison and known gaps are in `eval/results_after.md`;
-scoring rules and the labelling method are in `eval/README.md`.
+Current numbers are in `eval/results_current.md` (shown in the dashboard) and, with the
+before/after comparison and chart, in `eval/results_after.md`; both come from the same run and
+name the commit they measured. Results on held-out files the pipeline was not tuned on are in
+`eval/holdout/results.md`. Scoring rules, the labelling method, the case-study vs held-out
+comparison and the known limitations are in `eval/README.md`.
