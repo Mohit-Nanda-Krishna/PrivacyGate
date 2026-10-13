@@ -517,3 +517,71 @@ and decide whether standalone NER LOCATION should be kept.
 - **Scanned table read column by column.** OCR of the page-5 definitions table emits all terms,
   then all definitions, so each row's term and definition are far apart in the text (62% line
   order on that page against the transcription).
+
+## Dashboard benchmark conflict resolution (2026-10-10)
+
+### Completed
+
+- Combined the current multi-file dashboard with the stashed JSON-backed evaluation view. The benchmark tab now separates live document validation from ground-truth evaluation and shows per-artifact metrics plus OCR and image coverage.
+- Preserved the `d85b251` evaluation as `eval/results_baseline_d85b251.json` and `.md`. The dashboard uses `eval/results_current.json` only when a fresh benchmark creates it; the baseline is labelled with its source commit.
+- Removed unsupported metric targets and clarified that zero residual detections means the configured scan found none, not that the document is proven free of PII.
+
+### Verification
+
+- `uv run pytest -q tests/test_app.py tests/test_evaluation.py`: **15 passed**.
+- `uv run pytest -q`: **301 passed**.
+- The expensive benchmark was not run; current-branch benchmark metrics remain unavailable.
+
+### Next task
+
+- Run `uv run python scripts/evaluate.py --out eval/results_current.md` when ready to measure the current branch, then review the generated metrics and gate decisions.
+
+## DOCX image-OCR review safeguard (2026-10-10)
+
+### Completed
+
+- Added a review-only validation check for unresolved person-like candidates in embedded-image OCR blocks. It blocks without adding candidates to automatic redaction; existing residual detections continue through their previous path.
+- Added synthetic validation and pipeline regression cases for unresolved candidates, OCR role labels, ambiguous image context, and benign allowlisted phrases.
+
+### Verification
+
+- Four approval regression cases failed before the change; all seven new cases passed afterward.
+- Focused validation, pipeline, name-detection, and pseudonym suites: **106 passed**.
+- The full suite and benchmark were not rerun.
+
+### Known limitation and next task
+
+- Person-shaped benign phrases in image OCR can now block for review. Review the false-block rate and rerun the current benchmark before claiming the DOCX outcome is corrected on the supplied artifact.
+
+## Main branch sync and local conflict resolution (2026-10-13)
+
+### Completed
+
+- Fast-forwarded `feat/judge-dashboard-evaluation-current` from `85c48f7` to main commit `631078b`, then reapplied the saved local dashboard, evaluation, and DOCX image-OCR safeguard changes.
+- Resolved overlaps in `PROGRESS.md`, `app.py`, `scripts/evaluate.py`, `tests/test_evaluation.py`, and `tests/test_pipeline.py`. The dashboard retains the checked-in extraction-fidelity view and the local saved evaluation evidence. The saved local benchmark is labelled by its source commit because it predates this sync.
+- Kept the pre-sync working tree in the `pre-main-sync-2026-10-13` stash as a recovery point. Open PRs #23 and #24 were not included in main at that point.
+
+### Verification
+
+- Focused app, benchmark, evaluation, pipeline, and validation tests: **67 passed**.
+- `uv run --locked pytest -q`: **397 passed**.
+
+### Known issue and next task
+
+- `eval/results_current.json` was measured at `85c48f7`; rerun the benchmark on the resolved working tree before treating its figures as current. Review the new image-OCR safeguard's false-block rate alongside the refreshed results.
+
+## Integration with held-out benchmark and PDF gate changes (2026-10-13)
+
+### Completed
+
+- Committed the dashboard evaluation work and the image-OCR review safeguard on `feat/judge-dashboard-evaluation-current`.
+- Merged main commit `3a5f7e5`, which includes PRs #23 and #24. Git combined the overlapping evaluation documentation and privacy gate code without content conflicts.
+- Retained `eval/results_current.json` and `.md` locally as untracked historical outputs; they were generated at `85c48f7` and are not part of the PR.
+
+### Verification
+
+- `uv run --locked pytest -q`: **422 passed** after the merge.
+
+### Known issue and next task
+
+- The saved local benchmark is older than the merged code. Rerun the benchmark to measure this branch, and inspect the new held-out results before drawing general privacy claims.
