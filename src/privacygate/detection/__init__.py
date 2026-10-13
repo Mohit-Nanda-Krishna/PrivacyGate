@@ -28,6 +28,7 @@ from privacygate.detection.ocr_text import (
     ocr_identifiers,
     ocr_surnames,
 )
+from privacygate.detection.span_repair import repair_spans
 from privacygate.detection.presidio_detector import (
     PresidioDetector,
     detect_presidio,
@@ -112,7 +113,7 @@ def _header_phone_entities(blocks: list[ContentBlock]) -> list[PIIEntity]:
 
 _INLINE_ROLE = re.compile(
     r"\b(?:created by|prepared by|led by|attested by|signed by|reviewed by|owner|author\(s\)|authors?|"
-    r"client contact|contact)\s*[:\-]?\s*(?=[A-Z])",
+    r"client contact|contact|chair(?:ed by|person)?)\s*[:\-]?\s*(?=[A-Z])",
     re.IGNORECASE,
 )
 
@@ -171,6 +172,8 @@ def detect_pii_with_registry(
     5. OCR'd text only: damaged e-mails, damaged registered surnames and the
        initials in front of names, labelled passport/PAN numbers, damaged IPs,
        and names under person columns of OCR'd tables (detection/ocr_text.py).
+    6. OCR'd text only: detections completed where OCR left a piece of the value
+       outside them (detection/span_repair.py).
     """
     allowed = frozenset(DEFAULT_ALLOWLIST | {word.lower() for word in (allowlist or ())})
     try:
@@ -219,10 +222,18 @@ def detect_pii_with_registry(
                 or not is_single_token(entity)
                 or registry.find(texts[block_id][entity.start:entity.end])
             ]
-        for entity in sweep_names(blocks, registry) + ocr_surnames(blocks, registry):
+        swept = sweep_names(blocks, registry) + ocr_surnames(blocks, registry)
+        for entity in swept:
             findings[entity.block_id].append(entity)
+        # A registered person's name that NER tagged as a place ("Kulkarni" as LOCATION) is the person.
+        registered = {(e.block_id, e.start, e.end) for e in swept}
+        for block_id, found in findings.items():
+            findings[block_id] = [e for e in found
+                                  if e.entity_type != "LOCATION" or (block_id, e.start, e.end) not in registered]
         people = [entity for found in findings.values() for entity in found if entity.entity_type == "PERSON"]
         for entity in absorb_ocr_initials(blocks, people):
+            findings[entity.block_id].append(entity)
+        for entity in repair_spans(blocks, [e for found in findings.values() for e in found], registry):
             findings[entity.block_id].append(entity)
 
         entities: list[PIIEntity] = []

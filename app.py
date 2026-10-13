@@ -284,10 +284,15 @@ if selected:
                 for path, (name, _), item in zip(paths, selected, results):
                     if Path(name).suffix.lower() == ".pdf":
                         approved_file = item.validation.status == "APPROVED"
-                        redacted_pdfs[name] = redact_pdf(
-                            path, item.document, item.sanitized_document,
-                            watermark=None if approved_file else REVIEW_WATERMARK,
-                        )
+                        # Both variants now: the strict one masks every figure region whole.
+                        redacted_pdfs[name] = {
+                            mode: redact_pdf(
+                                path, item.document, item.sanitized_document,
+                                watermark=None if approved_file else REVIEW_WATERMARK,
+                                mask_all_figures=mode == "strict",
+                            )
+                            for mode in ("strict", "standard")
+                        }
                 st.session_state["redacted_pdfs"] = redacted_pdfs
                 st.session_state.pop("mock_llm_reply", None)
                 st.session_state["batch_result"] = batch
@@ -445,16 +450,24 @@ if "pipeline_result" in st.session_state and st.session_state["pipeline_result"]
         if st.session_state.get("mock_llm_reply"):
             st.success(st.session_state["mock_llm_reply"])
 
-        masked = (st.session_state.get("redacted_pdfs") or {}).get(doc.filename)
-        if masked is not None and doc.file_type == "pdf":
+        variants = (st.session_state.get("redacted_pdfs") or {}).get(doc.filename)
+        if variants is not None and doc.file_type == "pdf":
             st.markdown("#### Redacted PDF")
+            strict = st.checkbox(
+                "Mask all figures", value=True,
+                help="Masks every detected figure and photo region whole, whatever its OCR confidence, because "
+                     "OCR may not read every value inside a figure. Off: only unreadable figures are masked "
+                     "whole; readable figures keep their text with detected values masked.",
+            )
+            masked = variants["strict" if strict else "standard"]
             st.caption(
                 f"{masked.page_count} pages (same as the source), {masked.boxes} masked areas, "
                 f"document metadata removed. Masks follow the final sanitized text; scanned pages "
                 f"have the image pixels under each mask destroyed."
                 + (f" {masked.unlocated} replaced spans could not be placed on the page." if masked.unlocated else "")
+                + (f" {masked.strict_figures} figure regions masked (strict mode)." if masked.strict_figures else "")
                 + (f" {masked.unreadable_figures} figure regions masked as unreadable."
-                   if masked.unreadable_figures else "")
+                   if masked.unreadable_figures and not masked.strict_figures else "")
                 + (f" {masked.photos} photo or barcode regions masked." if masked.photos else "")
                 + (f" Figure scan failed on {masked.figure_scan_failures} pages: figures there may be unmasked."
                    if masked.figure_scan_failures else "")
