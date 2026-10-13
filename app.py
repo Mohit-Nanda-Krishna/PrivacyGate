@@ -19,6 +19,8 @@ from privacygate.detection import DetectionError
 from privacygate.extraction import ExtractionError
 from privacygate.evaluation import measure_structure_retention
 from privacygate.models import PIIEntity
+from privacygate.derivatives import REVIEW_WATERMARK, redact_pdf
+from privacygate.llm import GateRefusedError, build_llm_payload, mock_llm_call
 from privacygate.pipeline import run_batch, run_pipeline
 from privacygate.risk.classifier import RISK_MAPPING
 
@@ -223,7 +225,7 @@ selection_signature = tuple(
 )
 previous_signature = st.session_state.get("results_signature")
 if previous_signature is not None and previous_signature != selection_signature:
-    for key in ("pipeline_result", "batch_result", "results_signature"):
+    for key in ("pipeline_result", "batch_result", "results_signature", "redacted_pdfs", "mock_llm_reply"):
         st.session_state.pop(key, None)
 
 if selected:
@@ -258,6 +260,17 @@ if selected:
                     renames = {path.name: name for path, (name, _) in zip(paths, selected)}
                     for summary in batch.cross_file.values():
                         summary.occurrences = [(renames.get(file, file), where) for file, where in summary.occurrences]
+                # Masked PDFs are built now because uploaded bytes are deleted right after processing.
+                redacted_pdfs = {}
+                for path, (name, _), item in zip(paths, selected, results):
+                    if Path(name).suffix.lower() == ".pdf":
+                        approved_file = item.validation.status == "APPROVED"
+                        redacted_pdfs[name] = redact_pdf(
+                            path, item.document, item.sanitized_document,
+                            watermark=None if approved_file else REVIEW_WATERMARK,
+                        )
+                st.session_state["redacted_pdfs"] = redacted_pdfs
+                st.session_state.pop("mock_llm_reply", None)
                 st.session_state["batch_result"] = batch
                 st.session_state["pipeline_result"] = results[0]
                 st.session_state["results_signature"] = selection_signature
@@ -268,6 +281,7 @@ if selected:
                 st.session_state["pipeline_result"] = None
                 st.session_state["batch_result"] = None
                 st.session_state.pop("results_signature", None)
+                st.session_state.pop("redacted_pdfs", None)
             finally:
                 for temp_path in temp_paths:
                     temp_path.unlink(missing_ok=True)
@@ -329,14 +343,15 @@ if "pipeline_result" in st.session_state and st.session_state["pipeline_result"]
         "✂️ 3. Semantic Redaction Preview",
         "📊 4. Audit Report & Export",
         "📈 5. Quality Benchmark",
+        "🤖 6. What the AI Model Sees",
     ]
     if batch_result is not None:
-        tab_labels.append("🔗 6. Cross-File Identities")
+        tab_labels.append("🔗 7. Cross-File Identities")
     tabs = st.tabs(tab_labels)
-    tab_summary, tab_findings, tab_redaction, tab_audit, tab_benchmarks = tabs[:5]
+    tab_summary, tab_findings, tab_redaction, tab_audit, tab_benchmarks, tab_ai = tabs[:6]
 
     if batch_result is not None:
-        with tabs[5]:
+        with tabs[6]:
             st.subheader("Cross-File Identities")
             st.caption(
                 "One token session covers the whole batch, so the same person carries the same token in "
@@ -365,6 +380,53 @@ if "pipeline_result" in st.session_state and st.session_state["pipeline_result"]
                 st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
             else:
                 st.info("No tokens match the current filters.")
+
+    with tab_ai:
+        st.subheader("What the AI Model Sees")
+        payload = build_llm_payload(sanitized)
+        approved = validation.status == "APPROVED"
+        a1, a2, a3 = st.columns(3)
+        a1.metric("Characters", f"{len(payload):,}")
+        a2.metric("Pseudonym tokens", len(re.findall(r"\[[A-Z][A-Z_]*(?:_\d+)?\]", payload)))
+        a3.metric("Gate", validation.status)
+        st.caption(
+            "This is the exact sanitized text a downstream model would receive. "
+            + ("The gate approved it." if approved else
+               "The gate BLOCKED this document, so it would not be sent; shown here for review only.")
+        )
+        st.text_area("Sanitized payload", payload, height=300, disabled=True)
+
+        st.markdown("#### Mock model call")
+        st.caption("Local mock only: no network access and no API keys. It refuses unless the gate approved.")
+        instruction = st.text_input("Instruction for the model", value="Summarise the key risks in this document.")
+        if st.button("Send to mock LLM", disabled=False):
+            try:
+                st.session_state["mock_llm_reply"] = mock_llm_call(sanitized, validation, instruction).text
+            except GateRefusedError as refusal:
+                st.session_state["mock_llm_reply"] = None
+                st.error(str(refusal))
+        if st.session_state.get("mock_llm_reply"):
+            st.success(st.session_state["mock_llm_reply"])
+
+        masked = (st.session_state.get("redacted_pdfs") or {}).get(doc.filename)
+        if masked is not None and doc.file_type == "pdf":
+            st.markdown("#### Redacted PDF")
+            st.caption(
+                f"{masked.page_count} pages (same as the source), {masked.boxes} masked areas, "
+                f"document metadata removed. Masks follow the final sanitized text; scanned pages "
+                f"have the image pixels under each mask destroyed."
+                + (f" {masked.unlocated} replaced spans could not be placed on the page." if masked.unlocated else "")
+            )
+            pdf_name = f"{Path(doc.filename).stem}_redacted.pdf"
+            if approved:
+                st.download_button("⬇️ Download redacted PDF", masked.data, file_name=pdf_name,
+                                   mime="application/pdf")
+            else:
+                st.warning("The gate blocked this document: the masked copy may still contain personal data.")
+                if st.checkbox("I understand: download a watermarked review copy for internal review only"):
+                    st.download_button("⬇️ Download review copy (not approved)", masked.data,
+                                       file_name=f"{Path(doc.filename).stem}_review_copy.pdf",
+                                       mime="application/pdf")
 
     with tab_summary:
         st.subheader("Document Extraction Summary")

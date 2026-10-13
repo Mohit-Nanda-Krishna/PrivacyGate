@@ -56,7 +56,7 @@ class EmbeddedOcrResult:
     failed: list[str] = field(default_factory=list)
 
 
-def _ocr_one(image: EmbeddedImage) -> tuple[list[tuple[tuple[int, int, int], str, list[int]]], int, str | None]:
+def _ocr_one(image: EmbeddedImage) -> tuple[list[tuple], int, str | None]:
     label = f"image {image.name}"
     try:
         with Image.open(io.BytesIO(image.data)) as source:
@@ -121,7 +121,7 @@ def ocr_embedded_images(images: Sequence[EmbeddedImage]) -> EmbeddedOcrResult:
             result.report.append({"image": image.name, "status": "failed", "attempts": attempts, "reason": error})
             continue
         result.report.append({"image": image.name, "status": "ocr", "attempts": attempts, "lines": len(lines)})
-        for order, (key, text, bbox) in enumerate(lines, start=1):
+        for order, (key, text, bbox, word_boxes) in enumerate(lines, start=1):
             result.blocks.append(ContentBlock(
                 block_id=f"{image.block_prefix}_line_{order}",
                 text=text,
@@ -130,7 +130,7 @@ def ocr_embedded_images(images: Sequence[EmbeddedImage]) -> EmbeddedOcrResult:
                 metadata={
                     "kind": "image", "image_name": image.name, "block_order": order,
                     "source_block_number": key[0], "source_paragraph_number": key[1],
-                    "source_line_number": key[2], "bbox_pixels": bbox,
+                    "source_line_number": key[2], "bbox_pixels": bbox, "word_boxes_pixels": word_boxes,
                     **{k: v for k, v in image.location.items() if k != "slide_number"},
                 },
             ))
