@@ -53,17 +53,19 @@ class EmbeddedOcrResult:
     failed: list[str] = field(default_factory=list)
 
 
-def _ocr_one(image: EmbeddedImage) -> tuple[list[tuple], int, str | None]:
+def _ocr_one(image: EmbeddedImage) -> tuple[list[tuple], int, str | None, int]:
+    """(lines, attempts, error, scale): word boxes are in pixels of the image upscaled by scale."""
     label = f"image {image.name}"
     try:
         with Image.open(io.BytesIO(image.data)) as source:
             picture = source.convert("RGB")
     except Exception:
-        return [], 0, f"Could not decode {label}."
+        return [], 0, f"Could not decode {label}.", 1
     try:
         if picture.width <= 0 or picture.height <= 0:
-            return [], 0, f"Invalid dimensions for {label}."
+            return [], 0, f"Invalid dimensions for {label}.", 1
         min_dim = min(picture.width, picture.height)
+        scale = 1
         if picture.width < UPSCALE_BELOW_WIDTH or min_dim < 150:
             scale = max(2, min(8, 300 // max(1, min_dim)))
             resized = picture.resize(
@@ -73,11 +75,11 @@ def _ocr_one(image: EmbeddedImage) -> tuple[list[tuple], int, str | None]:
             picture.close()
             picture = resized
         data, attempts = run_ocr(picture, label, dpi=None)
-        return group_lines(data, label), attempts, None
+        return group_lines(data, label), attempts, None, scale
     except OCRRequiredError:
         raise
     except ExtractionError as error:
-        return [], 2 if "after a retry" in str(error) else 1, str(error)
+        return [], 2 if "after a retry" in str(error) else 1, str(error), 1
     finally:
         picture.close()
 
@@ -139,7 +141,7 @@ def ocr_embedded_images(images: Sequence[EmbeddedImage]) -> EmbeddedOcrResult:
     with ThreadPoolExecutor(max_workers=EMBEDDED_OCR_WORKERS) as executor:
         outcomes = list(executor.map(_ocr_one, candidates))
 
-    for primary_image, (lines, attempts, error) in zip(candidates, outcomes):
+    for primary_image, (lines, attempts, error, scale) in zip(candidates, outcomes):
         digest = hashlib.sha256(primary_image.data).digest()
         occurrences = occurrences_by_digest[digest]
 
@@ -160,7 +162,7 @@ def ocr_embedded_images(images: Sequence[EmbeddedImage]) -> EmbeddedOcrResult:
                 meta = {
                     "kind": "image", "image_name": occurrence.name, "block_order": order,
                     "source_block_number": key[0], "source_paragraph_number": key[1],
-                    "source_line_number": key[2], "bbox_pixels": bbox,
+                    "source_line_number": key[2], "bbox_pixels": bbox, "ocr_scale": scale,
                     **{k: v for k, v in occurrence.location.items() if k != "slide_number"},
                 }
                 if word_boxes is not None:

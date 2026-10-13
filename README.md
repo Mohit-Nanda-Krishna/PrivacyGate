@@ -53,7 +53,8 @@ Evidence Document (PDF / DOCX / PPTX)
   ▼
 [Stage 7: Audit Report & Streamlit Dashboard]
   └── Aggregate metrics, category/risk/location breakdowns and JSON audit export (counts, not raw values);
-      "What the AI model sees" view, gated mock model call, redacted PDF download.
+      "What the AI model sees" view, gated mock model call, redacted PDF, Word and PowerPoint
+      downloads (same tokens as the sanitized text; hidden places cleaned; images masked).
 ```
 
 ---
