@@ -516,3 +516,22 @@ def test_cadence_pptx_embedded_image_approves_gate():
     assert len(report) == 1
     assert report[0]["image"] == "image1.png"
     assert report[0]["status"] == "ocr"
+
+
+def test_same_image_in_two_headers_gets_distinct_block_ids(tmp_path, fake_image_ocr):
+    path = tmp_path / "two_headers.docx"
+    doc = DocxDocument()
+    doc.add_paragraph("First section.")
+    logo = _png().getvalue()
+    doc.sections[0].header.paragraphs[0].add_run().add_picture(io.BytesIO(logo), width=Inches(2))
+    second = doc.add_section()
+    second.header.is_linked_to_previous = False
+    second.header.paragraphs[0].add_run().add_picture(io.BytesIO(logo), width=Inches(2))
+    doc.add_paragraph("Second section.")
+    doc.save(path)
+
+    document = extract_document(path)
+    image_blocks = [b for b in document.blocks if b.extraction_method == "embedded_image_ocr"]
+    assert len(image_blocks) == 4  # two lines, two placements of the one logo
+    assert len({b.block_id for b in document.blocks}) == len(document.blocks)
+    assert run_pipeline(path).validation.status in ("APPROVED", "BLOCKED")  # no DetectionError

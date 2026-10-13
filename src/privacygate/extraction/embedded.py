@@ -89,6 +89,8 @@ def ocr_embedded_images(images: Sequence[EmbeddedImage]) -> EmbeddedOcrResult:
     result = EmbeddedOcrResult()
     if not images:
         return result
+    # The same image placed twice (a logo in two headers) must not give two blocks one id.
+    prefix_uses: dict[str, int] = {}
 
     digest_candidates: dict[bytes, EmbeddedImage] = {}
     occurrences_by_digest: dict[bytes, list[EmbeddedImage]] = {}
@@ -148,6 +150,8 @@ def ocr_embedded_images(images: Sequence[EmbeddedImage]) -> EmbeddedOcrResult:
         result.report.append({"image": primary_image.name, "status": "ocr", "attempts": attempts, "lines": len(lines)})
 
         for occurrence in occurrences:
+            uses = prefix_uses[occurrence.block_prefix] = prefix_uses.get(occurrence.block_prefix, 0) + 1
+            prefix = occurrence.block_prefix if uses == 1 else f"{occurrence.block_prefix}_{uses}"
             page_number = occurrence.location.get("page_number")
             slide_number = occurrence.location.get("slide_number")
             for order, item in enumerate(lines, start=1):
@@ -162,7 +166,7 @@ def ocr_embedded_images(images: Sequence[EmbeddedImage]) -> EmbeddedOcrResult:
                 if word_boxes is not None:
                     meta["word_boxes_pixels"] = word_boxes
                 result.blocks.append(ContentBlock(
-                    block_id=f"{occurrence.block_prefix}_line_{order}",
+                    block_id=f"{prefix}_line_{order}",
                     text=text,
                     page_number=page_number,
                     slide_number=slide_number,
