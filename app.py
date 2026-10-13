@@ -21,6 +21,7 @@ from privacygate.extraction import ExtractionError
 from privacygate.evaluation import measure_redaction_structure_preservation
 from privacygate.models import PIIEntity
 from privacygate.derivatives import REVIEW_WATERMARK, redact_pdf
+from privacygate.office_redaction import redact_office
 from privacygate.llm import GateRefusedError, build_llm_payload, mock_llm_call
 from privacygate.pipeline import run_batch, run_pipeline
 from privacygate.risk.classifier import RISK_MAPPING
@@ -244,7 +245,8 @@ selection_signature = tuple(
 )
 previous_signature = st.session_state.get("results_signature")
 if previous_signature is not None and previous_signature != selection_signature:
-    for key in ("pipeline_result", "batch_result", "results_signature", "redacted_pdfs", "mock_llm_reply"):
+    for key in ("pipeline_result", "batch_result", "results_signature", "redacted_pdfs", "redacted_office",
+                "mock_llm_reply"):
         st.session_state.pop(key, None)
 
 if selected:
@@ -294,6 +296,19 @@ if selected:
                             for mode in ("strict", "standard")
                         }
                 st.session_state["redacted_pdfs"] = redacted_pdfs
+                # Word/PowerPoint copies too: both variants, strict masks every image whole.
+                st.session_state["redacted_office"] = {
+                    name: {
+                        mode: redact_office(
+                            path, item.document, item.sanitized_document,
+                            watermark=None if item.validation.status == "APPROVED" else REVIEW_WATERMARK,
+                            mask_all_images=mode == "strict",
+                        )
+                        for mode in ("strict", "standard")
+                    }
+                    for path, (name, _), item in zip(paths, selected, results)
+                    if Path(name).suffix.lower() in (".docx", ".pptx")
+                }
                 st.session_state.pop("mock_llm_reply", None)
                 st.session_state["batch_result"] = batch
                 st.session_state["pipeline_result"] = results[0]
@@ -306,6 +321,7 @@ if selected:
                 st.session_state["batch_result"] = None
                 st.session_state.pop("results_signature", None)
                 st.session_state.pop("redacted_pdfs", None)
+                st.session_state.pop("redacted_office", None)
             finally:
                 for temp_path in temp_paths:
                     temp_path.unlink(missing_ok=True)
@@ -482,6 +498,49 @@ if "pipeline_result" in st.session_state and st.session_state["pipeline_result"]
                     st.download_button("⬇️ Download review copy (not approved)", masked.data,
                                        file_name=f"{Path(doc.filename).stem}_review_copy.pdf",
                                        mime="application/pdf")
+
+        office = (st.session_state.get("redacted_office") or {}).get(doc.filename)
+        if office is not None and doc.file_type in ("docx", "pptx"):
+            label = "Word document" if doc.file_type == "docx" else "PowerPoint deck"
+            st.markdown(f"#### Redacted {label}")
+            strict_images = st.checkbox(
+                "Mask all images", value=True, key="office_mask_all_images",
+                help="Replaces every raster image with a black image of the same size, because a screenshot can "
+                     "show values OCR did not read. Off: only the OCR'd words that were redacted are blacked out; "
+                     "images whose OCR failed are still masked whole.",
+            )
+            copy = office["strict" if strict_images else "standard"]
+            st.caption(
+                f"{copy.replacements} values replaced with the same tokens as the sanitized text "
+                f"({copy.values} distinct values, swept through every part of the file, including headers, "
+                f"footers, comments, notes and tracked changes). Document properties cleared; comment and "
+                f"revision authors and image alt text cleaned ({copy.attributes_cleaned} attributes)."
+                + (f" {copy.images_masked_whole} images masked whole (strict mode)." if copy.images_masked_whole
+                   else "")
+                + (f" {copy.image_words_masked} words masked in images." if copy.image_words_masked else "")
+            )
+            problems = []
+            if copy.leftover:
+                problems.append(f"{copy.leftover} replaced value(s) were still found in the copy")
+            if copy.vector_images:
+                problems.append(f"{copy.vector_images} vector image(s) (EMF/WMF/SVG) could not be inspected or masked")
+            if copy.unmasked_images:
+                problems.append(f"{copy.unmasked_images} image(s) could not be decoded and were left as they are")
+            if problems:
+                st.warning("This copy may not be fully redacted: " + "; ".join(problems) + ".")
+            mime = ("application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    if doc.file_type == "docx" else
+                    "application/vnd.openxmlformats-officedocument.presentationml.presentation")
+            stem = Path(doc.filename).stem
+            if approved:
+                st.download_button(f"⬇️ Download redacted {label}", copy.data,
+                                   file_name=f"{stem}_redacted.{doc.file_type}", mime=mime)
+            else:
+                st.warning("The gate blocked this document: the redacted copy may still contain personal data.")
+                if st.checkbox("I understand: download a watermarked review copy for internal review only",
+                               key="office_review_copy"):
+                    st.download_button("⬇️ Download review copy (not approved)", copy.data,
+                                       file_name=f"{stem}_review_copy.{doc.file_type}", mime=mime)
 
     with tab_summary:
         st.subheader("Document Extraction Summary")
