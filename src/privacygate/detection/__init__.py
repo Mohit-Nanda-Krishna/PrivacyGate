@@ -8,7 +8,9 @@ from privacygate.detection.common import DetectionError, make_entity, validate_e
 from privacygate.detection.custom_recognizers import (
     CustomRecognizer,
     EnterprisePattern,
+    PERSONNEL_LABEL,
     detect_custom,
+    personnel_value_spans,
 )
 from privacygate.detection.merger import merge_entities
 from privacygate.detection.names import (
@@ -111,6 +113,25 @@ def _header_phone_entities(blocks: list[ContentBlock]) -> list[PIIEntity]:
     return entities
 
 
+def _header_personnel_entities(blocks: list[ContentBlock]) -> list[PIIEntity]:
+    """ID-shaped values under an explicit personnel ID column are employee IDs."""
+    headers = {}
+    for block in blocks:
+        key = _table_key(block)
+        if key is not None and block.metadata["row_number"] == 1:
+            headers[(key, block.metadata["column_number"])] = block.text
+    entities = []
+    for block in blocks:
+        key = _table_key(block)
+        if key is None or block.metadata["row_number"] == 1:
+            continue
+        if not PERSONNEL_LABEL.search(headers.get((key, block.metadata["column_number"]), "")):
+            continue
+        for start, end in personnel_value_spans(block.text):
+            entities.append(make_entity(block, "EMPLOYEE_ID", start, end, 0.9, "context:table_header"))
+    return entities
+
+
 _INLINE_ROLE = re.compile(
     r"\b(?:created by|prepared by|led by|attested by|signed by|reviewed by|owner|author\(s\)|authors?|"
     r"client contact|contact|chair(?:ed by|person)?)\s*[:\-]?\s*(?=[A-Z])",
@@ -196,7 +217,8 @@ def detect_pii_with_registry(
         column_names = column_role_names(blocks, allowed)
         role_blocks |= {entity.block_id for entity in column_names}
         damaged_emails = ocr_emails(blocks, [e for found in findings.values() for e in found], allowed)
-        for entity in (_header_phone_entities(blocks) + _stitched_country_codes(blocks, findings)
+        for entity in (_header_phone_entities(blocks) + _header_personnel_entities(blocks)
+                       + _stitched_country_codes(blocks, findings)
                        + role_names + column_names + damaged_emails + ocr_identifiers(blocks)):
             findings[entity.block_id].append(entity)
 

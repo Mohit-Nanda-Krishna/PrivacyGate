@@ -41,6 +41,51 @@ _YEAR = re.compile(r"^(?:19|20)\d{2}$")
 # ISO date and hour whose "T" OCR read as a digit ("2026-06-11T08" -> "2026-06-11708").
 _OCR_ISO_DATETIME = re.compile(r"^\d{4}-[01]\d-[0-3]\d[T17][0-2]\d$")
 
+# Independent of custom_recognizers: a detector regression must not make the
+# same unredacted, clearly labelled personnel ID pass this gate.
+PERSONNEL_HEADER = re.compile(
+    r"\b(?:employee|staff|personnel|associate)[ \t]+(?:id|number|no\.?|code)(?!\w)",
+    re.IGNORECASE,
+)
+PERSONNEL_TOKEN = re.compile(r"(?<![\w-])[A-Za-z0-9]+(?:[-_][A-Za-z0-9]+){0,2}(?![\w-])")
+PERSONNEL_RECORD = re.compile(r"[A-Z]{2,8}-(?:19|20)\d{2}-\d{2,5}", re.IGNORECASE)
+PERSONNEL_TIMESTAMP = re.compile(r"(?:19|20)\d{2}-\d{2}-\d{2}T\d{2}", re.IGNORECASE)
+PERSONNEL_SEPARATOR = re.compile(r"[ \t]*(?:[:=#][ \t]*)?")
+
+
+def _personnel_tokens(text: str) -> list[tuple[int, int]]:
+    return [
+        match.span() for match in PERSONNEL_TOKEN.finditer(text)
+        if (re.fullmatch(r"[0-9]{5,10}", match.group()) or (
+            5 <= len(match.group()) <= 24
+            and re.search(r"[A-Za-z]", match.group())
+            and re.search(r"\d", match.group())
+        ))
+        and not PERSONNEL_RECORD.fullmatch(match.group())
+        and not PERSONNEL_TIMESTAMP.fullmatch(match.group())
+    ]
+
+
+def _personnel_context_spans(block: ContentBlock, headers: dict[tuple, str]) -> list[tuple[int, int]]:
+    text = block.text
+    spans = []
+    valid_tokens = _personnel_tokens(text)
+    valid_set = set(valid_tokens)
+    for label in PERSONNEL_HEADER.finditer(text):
+        start = PERSONNEL_SEPARATOR.match(text, label.end()).end()
+        token = PERSONNEL_TOKEN.match(text, start)
+        if token and token.span() in valid_set:
+            spans.append(token.span())
+
+    meta = block.metadata
+    if (meta.get("kind") == "table_cell" and "column_number" in meta
+            and type(meta.get("row_number")) is int and meta["row_number"] > 1):
+        key = (block.page_number, block.slide_number, meta.get("table_number"),
+               meta.get("shape_id"), meta.get("column_number"))
+        if PERSONNEL_HEADER.search(headers.get(key, "")):
+            spans.extend(valid_tokens)
+    return spans
+
 
 def _is_date_or_time(value: str) -> bool:
     """A year plus day/month/hour/minute groups ("22. 2024 10", "2024 02-18") is a timestamp."""
@@ -78,6 +123,14 @@ def independent_residual_checks(
 ) -> list[PIIEntity]:
     """Return residual PII candidates found by checks independent of the NER model."""
     residuals: list[PIIEntity] = []
+    headers = {}
+    for block in blocks:
+        meta = block.metadata
+        if (meta.get("kind") == "table_cell" and meta.get("row_number") == 1
+                and "column_number" in meta):
+            key = (block.page_number, block.slide_number, meta.get("table_number"),
+                   meta.get("shape_id"), meta.get("column_number"))
+            headers[key] = block.text
     for block in blocks:
         text = block.text
         if not text.strip():
@@ -88,6 +141,8 @@ def independent_residual_checks(
             return any(s <= start and end <= e for s, e in placeholders)
 
         candidates: list[tuple[str, int, int, str]] = []
+        candidates += [("EMPLOYEE_ID", s, e, "personnel_context")
+                       for s, e in _personnel_context_spans(block, headers)]
         candidates += [("PII", s, e, "unissued_placeholder")
                        for s, e in unissued_numbered_spans(text, issued_tokens)]
         if name_registry is not None:
