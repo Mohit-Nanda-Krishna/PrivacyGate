@@ -29,11 +29,13 @@ from privacygate.evaluation import (  # noqa: E402
     Score,
     evaluate_document,
     load_ground_truth,
-    measure_structure_retention,
+    measure_redaction_structure_preservation,
 )
 from privacygate.pipeline import run_pipeline  # noqa: E402
+from privacygate.structure import load_transcriptions, office_fidelity, scanned_fidelity  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
+REFERENCE_DIR = ROOT / "eval" / "reference"
 CHANNELS = ("native", "ocr", "image")
 LOCATIONS = ("body", "table", "prose", "image")
 
@@ -50,6 +52,21 @@ def add_scores(target: Score, source: Score) -> None:
 def score_from_dict(values: dict) -> Score:
     return Score(**{k: values[k] for k in (
         "occurrences", "detected", "residual", "detections", "true_positives", "false_positives")})
+
+
+def extraction_fidelity(source: Path, document) -> dict | None:
+    """XML-reference scores for DOCX/PPTX; transcription scores for a PDF with eval/reference/<stem>/."""
+    if source.suffix.lower() in (".docx", ".pptx"):
+        return office_fidelity(source, document).to_dict()
+    transcriptions = REFERENCE_DIR / source.stem
+    if transcriptions.is_dir():
+        return scanned_fidelity(document, load_transcriptions(transcriptions))
+    return None
+
+
+def redaction_preservation(item: dict) -> float | None:
+    """Reports written before the rename call it "structure_retention"."""
+    return item.get("redaction_structure_preservation", item.get("structure_retention"))
 
 
 def evaluate_file(csv_path: Path, docs_dir: Path) -> dict:
@@ -73,10 +90,55 @@ def evaluate_file(csv_path: Path, docs_dir: Path) -> dict:
         "blocks_by_method": dict(sorted(methods.items())),
         "gate_single_pass": single_pass,
         "gate_multi_pass": result.validation.status,
-        "structure_retention": round(
-            measure_structure_retention(result.document.blocks, result.sanitized_document.blocks), 4),
+        "redaction_structure_preservation": round(
+            measure_redaction_structure_preservation(result.document.blocks, result.sanitized_document.blocks), 4),
+        "extraction_fidelity": extraction_fidelity(source, result.document),
         **evaluation.to_dict(),
     }
+
+
+FIDELITY_DEFINITIONS = [
+    "- Character coverage: share of the reference's letters and digits found in the extracted text "
+    "(DOCX/PPTX; reference read from the file's XML).",
+    "- Reading order: of consecutive reference paragraphs (or transcribed lines) found in the extraction, "
+    "the share found in the same order.",
+    "- Table cells: share of non-empty reference table cells extracted with the same text at the same "
+    "row and column.",
+    "- OCR CER: character error rate of the OCR'd text against hand transcriptions of scanned pages "
+    "(`eval/reference/`), lower is better.",
+]
+
+
+def extraction_fidelity_lines(files: list[dict]) -> list[str]:
+    rows = [item for item in files if item.get("extraction_fidelity")]
+    if not rows:
+        return []
+    lines = ["", "## Extraction fidelity", "",
+             "How faithfully extraction captures the source file, against references built without the "
+             "extractors (see `eval/README.md`).", "", *FIDELITY_DEFINITIONS, "",
+             "| File | Reference | Character coverage | Reading order | Table cells | OCR CER |",
+             "|---|---|---|---|---|---|"]
+    for item in rows:
+        fidelity = item["extraction_fidelity"]
+        if fidelity["kind"] == "xml_reference":
+            lines.append(
+                f"| {item['file']} | XML: {fidelity['reference_paragraphs']} paragraphs, "
+                f"{fidelity['reference_cells']} table cells | {percent(fidelity['character_coverage'])} | "
+                f"{percent(fidelity['reading_order'])} | {percent(fidelity['table_cells'])} | — |"
+            )
+        else:
+            pages = ", ".join(str(page["page"]) for page in fidelity["pages"])
+            lines.append(
+                f"| {item['file']} | hand transcription, pages {pages} | — | "
+                f"{percent(fidelity['line_order'])} | — | {percent(fidelity['cer'])} |"
+            )
+    for item in rows:
+        fidelity = item["extraction_fidelity"]
+        if fidelity["kind"] == "transcription":
+            lines += ["", f"Transcribed pages of {item['file']}: " + "; ".join(
+                f"page {page['page']} CER {percent(page['cer'])}, line order {percent(page['line_order'])} "
+                f"({page['found_lines']}/{page['reference_lines']} lines found)" for page in fidelity["pages"]) + "."]
+    return lines
 
 
 def render_markdown(report: dict) -> str:
@@ -93,7 +155,7 @@ def render_markdown(report: dict) -> str:
         "",
         "## Summary",
         "",
-        "| File | Recall | Precision | F1 | Residual PII rate | Structure retention | "
+        "| File | Recall | Precision | F1 | Residual PII rate | Redaction structure preservation | "
         "Gate (1 pass) | Gate (2 passes) | Runtime |",
         "|---|---|---|---|---|---|---|---|---|",
     ]
@@ -103,7 +165,7 @@ def render_markdown(report: dict) -> str:
             f"| {item['file']} | {percent(o['recall'])} ({o['detected']}/{o['occurrences']}) | "
             f"{percent(o['precision'])} ({o['true_positives']}/{o['true_positives'] + o['false_positives']}) | "
             f"{percent(o['f1'])} | {percent(o['residual_rate'])} ({o['residual']}) | "
-            f"{percent(item['structure_retention'])} | {item['gate_single_pass']} | {item['gate_multi_pass']} | "
+            f"{percent(redaction_preservation(item))} | {item['gate_single_pass']} | {item['gate_multi_pass']} | "
             f"{item['seconds']} s |"
         )
     total = report["total"]
@@ -111,6 +173,10 @@ def render_markdown(report: dict) -> str:
         f"| **All files** | **{percent(total['recall'])}** | **{percent(total['precision'])}** | "
         f"**{percent(total['f1'])}** | **{percent(total['residual_rate'])}** | | | | |"
     )
+
+    lines += ["", "Redaction structure preservation: share of extracted blocks that sanitization kept in place "
+              "(same id, location, non-empty text); it does not measure extraction."]
+    lines += extraction_fidelity_lines(report["files"])
 
     lines += ["", "## Recall by source channel", "",
               "native = digitally native text, ocr = scanned page text, image = values inside "

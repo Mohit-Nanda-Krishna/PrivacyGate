@@ -497,3 +497,23 @@ DOCX: tables 100%, screenshots 90.5%.
 
 Close the screenshot-name gap (e.g. person-name shapes in screenshot table rows with a date column)
 and decide whether standalone NER LOCATION should be kept.
+
+## Extraction fidelity measurement (2026-10-13)
+
+### Completed
+
+- `privacygate.structure`: DOCX/PPTX scored against a reference read from the file's XML
+  (character coverage, reading order, table-cell preservation); the scanned PDF scored against
+  hand transcriptions of pages 3, 5 and 8 in `eval/reference/` (OCR character error rate, line order).
+- The old block-alignment metric is renamed "redaction structure preservation"; both are reported
+  by `scripts/evaluate.py` and shown in the benchmark tab with definitions (`eval/README.md`).
+
+### Open issues (found by the new metric, not fixed)
+
+- **DOCX content controls are not extracted.** Text inside `w:sdt` content controls (the table
+  of contents and the cover-page tables) is missing from the extraction.
+- **A DOCX field is truncated.** "Opportunity Number: OP-4545941" is extracted as
+  "Opportunity Number: OP"; the number is lost.
+- **Scanned table read column by column.** OCR of the page-5 definitions table emits all terms,
+  then all definitions, so each row's term and definition are far apart in the text (62% line
+  order on that page against the transcription).

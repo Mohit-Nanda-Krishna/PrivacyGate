@@ -157,7 +157,12 @@ uv run python scripts/compare_results.py   # before/after tables + eval/results_
 - **Precision**: share of detections that are labelled PII
 - **F1 Score**: harmonic mean of precision and recall
 - **Residual PII rate**: share of labelled occurrences with any character left unredacted
-- **Structure retention**: block, coordinate and context continuity (PRD target $\ge 80\%$)
+- **Extraction fidelity** (PRD structure target $\ge 80\%$): DOCX/PPTX character coverage,
+  reading order and table-cell preservation against a reference read from the file's XML;
+  scanned PDF OCR character error rate and line order against hand-transcribed pages
+  (`eval/reference/`)
+- **Redaction structure preservation**: share of extracted blocks that sanitization kept in
+  place (id, location, non-empty text); it does not measure extraction
 
 Current numbers, the before/after comparison and known gaps are in `eval/results_after.md`;
 scoring rules and the labelling method are in `eval/README.md`.
