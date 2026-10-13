@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from privacygate.detection import detect_pii, merge_entities
-from privacygate.detection.names import NameRegistry
+from privacygate.detection.names import DEFAULT_ALLOWLIST, NameRegistry, role_context_names
 from privacygate.models import Document, PIIEntity, ValidationResult
 from privacygate.validation.placeholders import intentional_placeholder_spans
 from privacygate.validation.residual_checks import GATE_DETECTOR_PREFIX, independent_residual_checks
@@ -35,10 +35,11 @@ def validate_privacy(
 ) -> ValidationResult:
     """Perform secondary privacy scan on sanitized document.
 
-    Two independent layers run: the full hybrid detector, and blunt checks
-    that do not depend on the NER model (names and variants from the original
-    document's registry, 7+ digit runs, e-mail and ID shapes). Any residual
-    from either layer blocks. Fails closed: any validation error blocks, and
+    The full hybrid detector runs alongside blunt checks that do not depend
+    on the NER model (names and variants from the original document's
+    registry, 7+ digit runs, e-mail and ID shapes). Unresolved
+    person-like candidates in embedded image OCR text require review rather
+    than automatic redaction. Fails closed: any validation error blocks, and
     the reason names only the error type, never its message (which could
     contain document text).
     """
@@ -116,6 +117,21 @@ def validate_privacy(
                     + (f" ({independent_count} found by independent residual checks)." if independent_count else ".")
                 ),
                 residual_entities=residual_entities,
+            )
+
+        # OCR can leave person-shaped text that neither NER nor the original
+        # name registry recognizes. Treat these as review candidates, not
+        # confirmed PII: an empty residual list prevents automatic redaction.
+        unresolved = sum(
+            not _is_placeholder_span(block.text, candidate.start, candidate.end, issued_tokens)
+            for block in sanitized_doc.blocks if block.extraction_method == "embedded_image_ocr"
+            for candidate in role_context_names(block, DEFAULT_ALLOWLIST)
+        )
+        if unresolved:
+            return ValidationResult(
+                status="BLOCKED",
+                reason=f"{unresolved} unresolved person-like candidate(s) in embedded-image OCR text require review.",
+                residual_entities=[],
             )
 
         return ValidationResult(

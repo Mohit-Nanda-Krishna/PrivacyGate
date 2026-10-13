@@ -13,6 +13,19 @@ pages, about 2 minutes); the script sets `OMP_THREAD_LIMIT=1` for Tesseract unle
 already set. `--only <csv stem>` limits the run to some files and `--spacy-model` swaps the
 NLP model for one run (the model must already be installed; the locked model is unchanged).
 
+`results_baseline_d85b251.json` and `.md` preserve the benchmark measured on commit
+`d85b251`; they do not measure the current code. The dashboard reads
+`results_current.json` when a fresh run creates it and otherwise shows that historical
+baseline with its commit label. Generate fresh results with:
+
+```
+uv run python scripts/evaluate.py --out eval/results_current.md
+```
+
+The dashboard's residual detection count comes from the live validation scan. The
+benchmark's residual occurrence rate is measured against labelled ground truth; neither
+a zero scan count nor a zero measured rate proves that all PII has been removed.
+
 ## Ground truth files
 
 One CSV per source file, columns:
@@ -65,20 +78,51 @@ true nor false positives:
 
 To include a row, change `uncertain` to blank. To drop one, delete the row.
 
+### Review of PDF false positives (2026-10-13)
+
+Every PDF detection that matched no labelled value was checked against the rendered pages.
+
+- **Added** (note "added after review; …"): 18 phone numbers printed in table cells on pages
+  3, 4, 6, 13, 25, 34 and 35 that wrap onto a second line and had never been labelled; the
+  surname `Ashby` inside an HR extract file name on page 18; and `Miami` on page 23, labelled
+  `LOCATION` because it is a customer's location tied to their card transactions (the only
+  `LOCATION` row; office cities stay unlabelled).
+- **Corrected** (note "corrected after review: value as printed includes country code"):
+  phone rows on pages 3, 7 and 34 had been labelled without the `+1` that the page prints at the
+  end of the line above (`+1` / `(212) 555-0147`); they now hold the full printed value. On page 6
+  the two shorter duplicates of already-labelled `+1 (212) …` rows were removed, and the board
+  chair's `+1 (212) 555-0100` on page 35 was added (as on page 32).
+- **Left as false positives:** detections of values that *are* labelled, in a form the scorer
+  cannot pair with the label: OCR-damaged spellings (`rbera@cadencefg.cor` for
+  `r.achterberg@cadencefg.com`, `Osei-tuty`, `EMP-38056` for `EMP-38066`), truncated pieces
+  (`P. Brig`), and damaged digits (`646-855-0188`, `90.42.7781`). They are real PII and are
+  redacted, but the labels record the true value, digit-heavy values never match fuzzily
+  (one wrong digit is a different number), and adding each OCR misreading as its own row
+  would make the labels describe one OCR run instead of the document. So they lower
+  precision; the matching occurrences are counted normally for recall and residual. Place
+  names, register references, UI labels and OCR noise also stay false positives.
+
 ## Scoring rules
 
 - **Occurrence matching** ignores case, spaces and punctuation and respects word boundaries.
   Letter-heavy values (names, e-mails) also match OCR-damaged text fuzzily (similarity ≥ 0.85,
   word-bounded) anywhere their exact form does not already match, so `Szewezyk` is found on a
   page that also prints `Szewczyk`. Digit-heavy values never match fuzzily.
+- **Wrapped values:** OCR reads a table row across all its columns, so a value that wraps
+  inside its cell comes out as two fragments with other cells' text in between
+  (`…, +1 (212)` … `555-0136`). A value not found whole is also looked for as two fragments,
+  split at a space or hyphen: the second fragment, then the nearest unclaimed first fragment
+  at most 6 lines earlier on the same page. Fragments must match exactly with the same groups
+  of letters and digits. A wrapped occurrence is **detected** only if every fragment is
+  covered by a detection and **residual** if any fragment is left.
 - **Not extracted:** a row whose value is not found on its page counts as one missed
   occurrence. This is how image-only content that the pipeline never extracts shows up.
 - **Recall** = occurrences overlapped by any detection ÷ all occurrences.
 - **Residual PII rate** = occurrences with any letter or digit left outside the redacted
   spans ÷ all occurrences. A partial redaction such as `TK[PHONE]` is detected but residual.
 - **Precision** = detections overlapping a labelled occurrence ÷ all judged detections.
-  Per-type precision uses the detector's type (`EMAIL_ADDRESS` → `EMAIL` etc.); `LOCATION`
-  has no ground truth type and is reported on its own row.
+  Per-type precision uses the detector's type (`EMAIL_ADDRESS` → `EMAIL` etc.). `LOCATION`
+  has one labelled row (a customer location); other place-name detections are false positives.
 - **Channels:** `native` = digitally native text, `ocr` = scanned-page text, `image` = rows
   located in figures/screenshots (`location_type = image`) or text from embedded-image OCR.
 - **Gate:** the single-pass and two-pass (app "Multi-Pass") privacy gate decisions are both
@@ -126,14 +170,15 @@ To add a page, transcribe it into a new `page_NN.txt`; it is picked up on the ne
 
 The case-study files were used while building and tuning the pipeline; the held-out files
 (`holdout/`, generated by `scripts/make_holdout.py`) were not, and nothing is tuned on them.
-Both measured with the same code (main 631078b, which this section merges into) on 2026-10-13:
+Both measured with the same code (main 80b5b46) on 2026-10-13:
 
 | Set | Files | Recall | Precision | F1 | Residual PII rate |
 |---|---|---|---|---|---|
-| Case study | 3 (`ground_truth/`) | 97.4% | 92.9% | 95.1% | 3.3% |
+| Case study | 3 (`ground_truth/`) | 97.7% | 94.4% | 96.0% | 2.2% |
 | Held-out | 3 (`holdout/ground_truth/`) | 80.5% | 91.7% | 85.7% | 21.9% |
 
-The gap is the expected cost of tuning on three files. Per-file results: `holdout/results.md`.
+The gap is the expected cost of tuning on three files. Per-file results: `results_current.md`
+(case study) and `holdout/results.md` (held-out).
 
 ### Known gaps seen on the held-out set (not fixed, to keep it held out)
 
@@ -146,3 +191,38 @@ The gap is the expected cost of tuning on three files. Per-file results: `holdou
    found by NER and has no other context.
 5. **Table labels tagged as places.** "South" and "West" in a contact table and its notes
    are detected as LOCATION (false positives).
+
+## Known limitations of the current results (main 80b5b46)
+
+**PII never extracted from the scanned policy PDF (26 occurrences, its whole 2.5% residual).**
+Every value the pipeline extracts is fully redacted; these 26 are values OCR did not read
+well enough to be found at all, so they are not in the text sent to the model.
+
+- 18 are inside figures. The redacted PDF masks every detected figure region whole by default
+  ("Mask all figures"), so they are hidden there too; with that option turned off they stay
+  visible in readable figures.
+- 8 are in ordinary body text and tables, where no figure mask applies, so **they remain
+  visible in the redacted PDF**:
+
+  | Page | Where | Entity type | Count |
+  |---|---|---|---|
+  | 22 | prose | PERSON | 2 |
+  | 23 | prose | PERSON | 1 |
+  | 26 | table | PERSON | 3 |
+  | 31 | table | PHONE | 2 |
+
+**The DOCX is BLOCKED on both passes with 0% measured residual.** All 49 labelled occurrences
+are redacted, but the review rule added in #27 blocks any document whose embedded-image OCR
+text still contains person-shaped text the pipeline could not resolve: 52 candidates in the
+DOCX screenshots. This is the rule working as designed (fail closed, ask for review); it was
+not changed. What the 52 candidates are, by category:
+
+| Category | Examples of the kind (not values) | Count |
+|---|---|---|
+| UI labels, buttons and form controls | page builder labels, Yes/No and Cancel buttons | 29 |
+| Business, system or group terms | system and framework names, "doing business as" fields | 17 |
+| OCR fragments and avatar initials | two-letter avatars next to a word, broken words | 6 |
+| Real person names | (names in the screenshots are already replaced by tokens) | 0 |
+
+None of the 52 is a person. Whether the rule should ignore UI vocabulary, or keep blocking and
+leave the decision to a reviewer, is open for the team.

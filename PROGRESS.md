@@ -462,7 +462,7 @@ This phase measured them and superseded those claims with the numbers below.
   The Quality Benchmark tab keeps the per-document metrics from #14 and adds the measured
   benchmark from `eval/`; hard-coded quality figures were removed from the app and README.
 
-### Results (`eval/results_after.md`)
+### Results (historical, 2026-10-08; superseded by the 2026-10-13 refresh at the end of this file)
 
 After = main `163b517` (includes #11, #12, #14). Open PR #13 changes no detection: main + #13 measured identical.
 
@@ -517,3 +517,114 @@ and decide whether standalone NER LOCATION should be kept.
 - **Scanned table read column by column.** OCR of the page-5 definitions table emits all terms,
   then all definitions, so each row's term and definition are far apart in the text (62% line
   order on that page against the transcription).
+
+## Dashboard benchmark conflict resolution (2026-10-10)
+
+### Completed
+
+- Combined the current multi-file dashboard with the stashed JSON-backed evaluation view. The benchmark tab now separates live document validation from ground-truth evaluation and shows per-artifact metrics plus OCR and image coverage.
+- Preserved the `d85b251` evaluation as `eval/results_baseline_d85b251.json` and `.md`. The dashboard uses `eval/results_current.json` only when a fresh benchmark creates it; the baseline is labelled with its source commit.
+- Removed unsupported metric targets and clarified that zero residual detections means the configured scan found none, not that the document is proven free of PII.
+
+### Verification
+
+- `uv run pytest -q tests/test_app.py tests/test_evaluation.py`: **15 passed**.
+- `uv run pytest -q`: **301 passed**.
+- The expensive benchmark was not run; current-branch benchmark metrics remain unavailable.
+
+### Next task
+
+- Run `uv run python scripts/evaluate.py --out eval/results_current.md` when ready to measure the current branch, then review the generated metrics and gate decisions.
+
+## DOCX image-OCR review safeguard (2026-10-10)
+
+### Completed
+
+- Added a review-only validation check for unresolved person-like candidates in embedded-image OCR blocks. It blocks without adding candidates to automatic redaction; existing residual detections continue through their previous path.
+- Added synthetic validation and pipeline regression cases for unresolved candidates, OCR role labels, ambiguous image context, and benign allowlisted phrases.
+
+### Verification
+
+- Four approval regression cases failed before the change; all seven new cases passed afterward.
+- Focused validation, pipeline, name-detection, and pseudonym suites: **106 passed**.
+- The full suite and benchmark were not rerun.
+
+### Known limitation and next task
+
+- Person-shaped benign phrases in image OCR can now block for review. Review the false-block rate and rerun the current benchmark before claiming the DOCX outcome is corrected on the supplied artifact.
+
+## Main branch sync and local conflict resolution (2026-10-13)
+
+### Completed
+
+- Fast-forwarded `feat/judge-dashboard-evaluation-current` from `85c48f7` to main commit `631078b`, then reapplied the saved local dashboard, evaluation, and DOCX image-OCR safeguard changes.
+- Resolved overlaps in `PROGRESS.md`, `app.py`, `scripts/evaluate.py`, `tests/test_evaluation.py`, and `tests/test_pipeline.py`. The dashboard retains the checked-in extraction-fidelity view and the local saved evaluation evidence. The saved local benchmark is labelled by its source commit because it predates this sync.
+- Kept the pre-sync working tree in the `pre-main-sync-2026-10-13` stash as a recovery point. Open PRs #23 and #24 were not included in main at that point.
+
+### Verification
+
+- Focused app, benchmark, evaluation, pipeline, and validation tests: **67 passed**.
+- `uv run --locked pytest -q`: **397 passed**.
+
+### Known issue and next task
+
+- `eval/results_current.json` was measured at `85c48f7`; rerun the benchmark on the resolved working tree before treating its figures as current. Review the new image-OCR safeguard's false-block rate alongside the refreshed results.
+
+## Integration with held-out benchmark and PDF gate changes (2026-10-13)
+
+### Completed
+
+- Committed the dashboard evaluation work and the image-OCR review safeguard on `feat/judge-dashboard-evaluation-current`.
+- Merged main commit `3a5f7e5`, which includes PRs #23 and #24. Git combined the overlapping evaluation documentation and privacy gate code without content conflicts.
+- Merged main commit `3461e8b` (PR #25); Git combined its `app.py` changes without content conflicts.
+- Retained `eval/results_current.json` and `.md` locally as untracked historical outputs; they were generated at `85c48f7` and are not part of the PR.
+
+### Verification
+
+- `uv run --locked pytest -q`: **422 passed** after the merge.
+- `uv run --locked pytest -q`: **432 passed** after PR #25.
+
+### Known issue and next task
+
+- The saved local benchmark is older than the merged code. Rerun the benchmark to measure this branch, and inspect the new held-out results before drawing general privacy claims.
+
+## Results refresh on main 80b5b46 (2026-10-13)
+
+### Completed
+
+- One `scripts/evaluate.py` run on main `80b5b46` (#19-#27 merged) wrote `eval/results_current.*`
+  (dashboard) and `eval/results_after.*` (before/after against the 2026-10-07 baseline, with
+  `eval/results_chart.png`); the held-out set was rerun into `eval/holdout/results.*`.
+- `eval/README.md` and `README.md` point to these files; no figures are copied elsewhere.
+
+### Results
+
+| File | Recall | Precision | Residual PII rate | Gate 1 pass / 2 passes |
+|---|---|---|---|---|
+| Org pack (PPTX) | 100.0% | 100.0% | 0.0% | APPROVED / APPROVED |
+| Risk policy (PDF, 35 scanned pages) | 97.4% | 94.4% | 2.5% | APPROVED / APPROVED |
+| TPRM training (DOCX) | 100.0% | 82.8% | 0.0% | BLOCKED / BLOCKED |
+| All files | 97.7% | 94.4% | 2.2% | |
+| Held-out (3 files, not tuned on) | 80.5% | 91.7% | 21.9% | |
+
+PDF recall by channel: scanned text 99.1%, figures 82.7%. Extraction fidelity: PPTX 100% character
+coverage, reading order and table cells; DOCX 98.8% / 100% / 99.4%; scanned PDF 0.2% OCR CER and
+82.5% line order on the three transcribed pages.
+
+### Verification
+
+- `uv run pytest -q`: **437 passed** on main `80b5b46`.
+
+### Known issues
+
+- **26 PDF values are never extracted** (the PDF's whole residual). 18 are inside figures and
+  are masked in the redacted PDF by the default "Mask all figures" option. 8 are in body text
+  and tables (pages 22, 23, 26 and 31; 6 PERSON, 2 PHONE): they are not in the text sent to the
+  model, but **they stay visible in the redacted PDF**.
+- **The DOCX is BLOCKED on both passes with 0% measured residual**, by the #27 review rule for
+  person-shaped text in embedded-image OCR: 52 candidates, of which 29 are UI labels and
+  controls, 17 business/system terms, 6 OCR fragments or avatar initials and 0 real names
+  (`eval/README.md`). Whether to tune the rule is open; it was not changed.
+- Held-out gaps (unseen ID format, wrapped address, OCR-damaged DOB, name only in speaker notes,
+  table labels tagged as places) and the extraction gaps recorded above (DOCX content controls,
+  the truncated DOCX field, the page-5 table read column by column) remain open.

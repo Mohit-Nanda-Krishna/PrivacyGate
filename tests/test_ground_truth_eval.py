@@ -190,6 +190,76 @@ def test_value_wrapped_across_two_blocks_is_judged_per_block():
     assert evaluate_document(document, [], rows, sanitized_document=half).overall.residual == 1
 
 
+def _table_with_wrapped_cells():
+    """OCR of a table row read across the columns: the phone and the name wrap inside their cells."""
+    return _doc(
+        _block("l1", "Credit Risk Quillon R. b.ferrant@example.test, +1 (555) GRP-POL-002"),
+        _block("l2", "(EMP-48120) 010-2036"),
+        _block("l3", "Market Risk Ferrant Ismay q.ross@example.test, +1 (555) GRP-POL-003"),
+        _block("l4", "Corvell 010-2047"),
+    )
+
+
+def test_wrapped_phone_is_found_as_fragments_and_scored_per_fragment():
+    document = _table_with_wrapped_cells()
+    rows = [_row("+1 (555) 010-2036", "PHONE"), _row("+1 (555) 010-2047", "PHONE")]
+    occurrences = locate_ground_truth(rows, build_page_texts(document))
+    assert all(len(o.fragments) == 2 for o in occurrences)
+    text = build_page_texts(document)["1"].text
+    # The nearest "+1 (555)" before each tail is paired with it, not the first one on the page.
+    pairs = {o.row.value: [text[s:e] for s, e in o.fragments] for o in occurrences}
+    assert pairs["+1 (555) 010-2047"] == ["1 (555", "010-2047"]  # spans hold the letters and digits
+    assert text.index("1 (555", text.index("Market")) == next(
+        o for o in occurrences if o.row.value.endswith("2047")).fragments[0][0]
+
+    both = [_entity("l1", document.blocks[0].text, "+1 (555)", "PHONE_NUMBER"),
+            _entity("l2", document.blocks[1].text, "010-2036", "PHONE_NUMBER")]
+    result = evaluate_document(document, both, rows[:1])
+    assert result.overall.detected == 1 and result.overall.residual == 0
+    assert result.overall.true_positives == 2 and result.overall.false_positives == 0
+    tail_only = evaluate_document(document, both[1:], rows[:1])
+    assert tail_only.overall.detected == 0 and tail_only.overall.residual == 1
+
+
+def test_wrapped_name_is_found_and_text_in_between_is_not_part_of_it():
+    document = _table_with_wrapped_cells()
+    rows = [_row("Ismay Corvell")]
+    [occurrence] = locate_ground_truth(rows, build_page_texts(document))
+    text = build_page_texts(document)["1"].text
+    assert [text[s:e] for s, e in occurrence.fragments] == ["Ismay", "Corvell"]
+    # A detection of the text between the fragments does not count for this value.
+    between = _entity("l3", document.blocks[2].text, "q.ross@example.test", "EMAIL_ADDRESS")
+    assert evaluate_document(document, [between], rows).overall.true_positives == 0
+    names = [_entity("l3", document.blocks[2].text, "Ismay"), _entity("l4", document.blocks[3].text, "Corvell")]
+    redacted = _doc(*document.blocks[:2], _block("l3", "Market Risk Ferrant [PERSON_001] q.ross@example.test, +1 (555) "
+                                                        "GRP-POL-003"), _block("l4", "Corvell 010-2047"))
+    result = evaluate_document(document, names, rows, sanitized_document=redacted)
+    assert result.overall.detected == 1 and result.overall.residual == 1  # "Corvell" left in line 4
+
+
+def test_wrapped_country_code_alone_is_a_fragment_only_with_its_plus_sign():
+    document = _doc(_block("b1", "m.achebe@example.test, +1 Standing"), _block("b2", "(212) 555-0147"),
+                    _block("b3", "Section 1 Standing"), _block("b4", "(212) 555-0188"))
+    rows = [_row("+1 (212) 555-0147", "PHONE"), _row("+1 (212) 555-0188", "PHONE")]
+    found = {o.row.value: o for o in locate_ground_truth(rows, build_page_texts(document))}
+    text = build_page_texts(document)["1"].text
+    assert [text[s:e] for s, e in found["+1 (212) 555-0147"].fragments] == ["1", "212) 555-0147"]
+    assert not found["+1 (212) 555-0188"].extracted  # "Section 1" has no "+"
+
+
+def test_wrapped_fragments_must_keep_their_digit_groups():
+    # "1983" must not be paired with the "1 (983" of a phone on the next line.
+    document = _doc(_block("b1", "born 14 March 19833, lives"), _block("b2", "callback +1 (983) 555-0164"))
+    [occurrence] = locate_ground_truth([_row("14 March 1983", "DATE_OF_BIRTH")], build_page_texts(document))
+    assert not occurrence.extracted
+
+
+def test_values_found_whole_are_not_also_matched_as_wrapped():
+    document = _doc(_block("b1", "Call +1 (555) 010-2036 today"), _block("b2", "Extension +1 (555) list 010-2036"))
+    occurrences = locate_ground_truth([_row("+1 (555) 010-2036", "PHONE")], build_page_texts(document))
+    assert [len(o.fragments) for o in occurrences] == [0, 2]
+
+
 def test_uncertain_rows_are_neutral():
     text = "Mailbox team@example.test"
     document = _doc(_block("b1", text))

@@ -216,10 +216,20 @@ class Occurrence:
     fuzzy: bool = False
     detected: bool = False
     fully_redacted: bool = False
+    # A value wrapped across lines with other text in between: its fragments' page spans.
+    fragments: list[tuple[int, int]] = field(default_factory=list)
 
     @property
     def extracted(self) -> bool:
         return self.start >= 0
+
+    @property
+    def pieces(self) -> list[tuple[int, int]]:
+        """Page spans that hold the value: the fragments of a wrapped value, else the whole span."""
+        return self.fragments or [(self.start, self.end)]
+
+    def overlaps(self, start: int, end: int) -> bool:
+        return any(low < end and high > start for low, high in self.pieces)
 
     @property
     def channel(self) -> str:
@@ -349,14 +359,86 @@ def find_value(text: str, value: str, fuzzy: bool = True) -> list[tuple[int, int
     return sorted(hits)
 
 
+WRAP_LINES = 6  # a wrapped value's fragments lie at most this many lines apart
+MIN_HEAD = 2  # letters/digits in the first fragment
+MIN_TAIL = 3  # letters/digits in the second fragment
+
+
+def _line_index(page: PageText, offset: int) -> int:
+    index = 0
+    for number, (start, _) in enumerate(page.spans):
+        if start > offset:
+            break
+        index = number
+    return index
+
+
+def find_wrapped(
+    page: PageText, value: str, taken: Sequence[tuple[int, int]] = (),
+) -> list[list[tuple[int, int]]]:
+    """Occurrences of value split in two across lines, with other text allowed in between.
+
+    OCR reads a table row across all its columns, so a phone wrapped inside a
+    cell ("..., +1 (212)" / "555-0136") comes out as two fragments with other
+    cells' text between them. The value is split at a space or hyphen; the
+    second fragment is located first, then the nearest unclaimed first
+    fragment before it, at most WRAP_LINES lines earlier. Fragments match
+    exactly (case-insensitive, word-bounded, the same runs of letters and
+    digits, so "1971" never matches "1 (971") and are never adjacent (that is
+    an ordinary match). Returns one fragment list per occurrence.
+    """
+    used = list(taken)
+
+    def free(start: int, end: int) -> bool:
+        return not any(start < high and end > low for low, high in used)
+
+    def runs(text: str) -> list[str]:
+        return re.findall(r"[^\W_]+", text.lower())
+
+    def exact(fragment: str) -> list[tuple[int, int]]:
+        # Same runs of letters/digits as the fragment: "1971" must not match "1 (971" in a phone.
+        # A fragment printed with a leading "+" ("+1") must have the "+" in the text too.
+        return [(s, e) for s, e, _ in find_value(page.text, fragment, fuzzy=False)
+                if runs(page.text[s:e]) == runs(fragment)
+                and (not fragment.startswith("+") or page.text[max(0, s - 1):s] == "+")]
+
+    found = []
+    cuts = [match.end() for match in re.finditer(r"[\s-]+", value) if 0 < match.start() and match.end() < len(value)]
+    for cut in cuts:
+        head, tail = value[:cut].strip(), value[cut:].strip()
+        # A one-digit country code ("+1") is a valid first fragment; it is anchored on its "+".
+        short_ok = head.startswith("+") and len(_normalize(head)[0]) >= 1
+        if (len(_normalize(head)[0]) < MIN_HEAD and not short_ok) or len(_normalize(tail)[0]) < MIN_TAIL:
+            continue
+        heads = exact(head)
+        for tail_start, tail_end in exact(tail):
+            if not free(tail_start, tail_end):
+                continue
+            tail_line = _line_index(page, tail_start)
+            candidates = [
+                (s, e) for s, e in heads
+                if e < tail_start and free(s, e) and tail_line - _line_index(page, s) <= WRAP_LINES
+                and page.text[e:tail_start].strip(" \t\n-")  # something in between: not an ordinary match
+            ]
+            if not candidates:
+                continue
+            head_span = max(candidates)  # the nearest first fragment
+            fragments = [head_span, (tail_start, tail_end)]
+            used.extend(fragments)
+            found.append(fragments)
+    return found
+
+
 def locate_ground_truth(
     rows: Sequence[GroundTruthRow], pages: dict[str, PageText], fuzzy: bool = True,
 ) -> list[Occurrence]:
     """Assign every value occurrence on a page to at most one ground truth row.
 
     Longer values claim text first, so a surname row never re-counts the
-    surname inside a full name that another row already covers. A row whose
-    value is not found anywhere on its page yields one unextracted occurrence.
+    surname inside a full name that another row already covers. Values wrapped
+    across lines with other text in between are found as fragments
+    (find_wrapped). A row whose value is not found anywhere on its page yields
+    one unextracted occurrence.
     """
     occurrences: list[Occurrence] = []
     claimed: dict[str, list[tuple[int, int]]] = {}
@@ -370,6 +452,10 @@ def locate_ground_truth(
                     continue
                 taken.append((start, end))
                 found.append(Occurrence(row, row.page, start, end, page.method_at(start), is_fuzzy))
+            for fragments in find_wrapped(page, row.value, taken):
+                taken.extend(fragments)
+                found.append(Occurrence(row, row.page, fragments[0][0], fragments[-1][1],
+                                        page.method_at(fragments[0][0]), fragments=fragments))
         if not found:
             method = page.spans[0][1].extraction_method or "" if page is not None and page.spans else ""
             found = [Occurrence(row, row.page, method=method)]
@@ -535,11 +621,17 @@ def evaluate_document(
         page_spans = spans.get(occurrence.page, [])
         if occurrence.extracted:
             text = pages[occurrence.page].text
-            occurrence.detected = any(s[0] < occurrence.end and s[1] > occurrence.start for s in page_spans)
+            # A wrapped value is detected only if every fragment is, and residual if any fragment is.
+            occurrence.detected = all(
+                any(s[0] < end and s[1] > start for s in page_spans) for start, end in occurrence.pieces
+            )
             if sanitized_blocks is None:
-                occurrence.fully_redacted = _covered(text, occurrence.start, occurrence.end, page_spans)
+                occurrence.fully_redacted = all(
+                    _covered(text, start, end, page_spans) for start, end in occurrence.pieces
+                )
             else:
-                segments = _occurrence_segments(pages[occurrence.page], occurrence.start, occurrence.end)
+                segments = [segment for start, end in occurrence.pieces
+                            for segment in _occurrence_segments(pages[occurrence.page], start, end)]
                 occurrence.fully_redacted = bool(segments) and all(
                     block.block_id in sanitized_blocks
                     and not _has_residual_character(
@@ -560,7 +652,7 @@ def evaluate_document(
     for page, page_spans in spans.items():
         page_occurrences = [o for o in occurrences if o.page == page and o.extracted]
         for start, end, entity in page_spans:
-            overlapping = [o for o in page_occurrences if o.start < end and o.end > start]
+            overlapping = [o for o in page_occurrences if o.overlaps(start, end)]
             detected_type = DETECTED_TYPE_MAP.get(entity.entity_type, entity.entity_type)
             type_score = by_type.setdefault(detected_type, Score())
             overall.detections += 1

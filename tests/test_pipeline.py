@@ -168,3 +168,24 @@ def test_residual_diagnostics_are_separate_from_audit_json(
     assert "PRIVATE_BLOCK_ID" not in exported
     assert "PRIVATE_FILENAME.pdf" not in exported
     assert "PRIVATE_SOURCE_VALUE" not in exported
+def test_unresolved_image_ocr_candidate_never_enters_automatic_second_pass(monkeypatch) -> None:
+    import privacygate.pipeline as pipeline
+    from privacygate.detection.names import NameRegistry
+    from privacygate.models import ContentBlock, Document
+
+    block = ContentBlock("image_line", "Quilla Marsh", extraction_method="embedded_image_ocr",
+                         metadata={"kind": "image", "image_name": "synthetic.png"})
+    document = Document("source", "synthetic.docx", "docx", blocks=[block])
+    monkeypatch.setattr(pipeline, "extract_document", lambda path: document)
+    monkeypatch.setattr(pipeline, "detect_pii_with_registry", lambda doc: ([], NameRegistry()))
+    monkeypatch.setattr("privacygate.validation.privacy_gate.detect_pii", lambda doc: [])
+
+    result = pipeline.run_pipeline("synthetic.docx", max_passes=2)
+
+    assert result.validation.status == "BLOCKED"
+    assert result.audit_report.validation.status == "BLOCKED"
+    assert "review" in result.validation.reason.lower()
+    assert result.passes_executed == 1
+    assert result.validation.residual_entities == []
+    assert result.redactions == []
+    assert result.sanitized_document.blocks[0].text == "Quilla Marsh"
