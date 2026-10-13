@@ -576,11 +576,13 @@ and decide whether standalone NER LOCATION should be kept.
 
 - Committed the dashboard evaluation work and the image-OCR review safeguard on `feat/judge-dashboard-evaluation-current`.
 - Merged main commit `3a5f7e5`, which includes PRs #23 and #24. Git combined the overlapping evaluation documentation and privacy gate code without content conflicts.
+- Merged main commit `3461e8b` (PR #25); Git combined its `app.py` changes without content conflicts.
 - Retained `eval/results_current.json` and `.md` locally as untracked historical outputs; they were generated at `85c48f7` and are not part of the PR.
 
 ### Verification
 
 - `uv run --locked pytest -q`: **422 passed** after the merge.
+- `uv run --locked pytest -q`: **432 passed** after PR #25.
 
 ### Known issue and next task
 
