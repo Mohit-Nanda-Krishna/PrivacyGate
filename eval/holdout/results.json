@@ -1,14 +1,15 @@
 {
-  "label": "held-out (main 7ba5ca4 + #20, #21, #22)",
+  "label": "held-out (main 80b5b46)",
   "date": "2026-10-13",
   "platform": "Windows 10.0.26300, Python 3.11.15",
+  "git_commit": "80b5b46158615d1c82a58a5bc303ff3fd5fd214c",
   "spacy_model": "en_core_web_sm",
   "omp_thread_limit": "1",
   "files": [
     {
       "file": "holdout_deck.pptx",
       "ground_truth_rows": 10,
-      "seconds": 0.6,
+      "seconds": 0.9,
       "blocks_by_method": {
         "pptx_native": 17
       },
@@ -23,6 +24,28 @@
         "reference_paragraphs": 17,
         "located_paragraphs": 11,
         "reference_cells": 12
+      },
+      "pipeline": {
+        "detected_count": 11,
+        "redacted_count": 11,
+        "residual_detection_count": 0,
+        "passes_executed": 1
+      },
+      "extraction_coverage": {
+        "pages": {
+          "native": 0,
+          "ocr": 0,
+          "failed": 0
+        },
+        "embedded_images": {
+          "attempted": 0,
+          "succeeded": 0,
+          "failed": 0,
+          "skipped": 0,
+          "skipped_tiny": 0,
+          "skipped_vector": 0
+        },
+        "warning_count": 0
       },
       "overall": {
         "occurrences": 10,
@@ -148,13 +171,13 @@
     {
       "file": "holdout_memo.docx",
       "ground_truth_rows": 12,
-      "seconds": 0.6,
+      "seconds": 0.8,
       "blocks_by_method": {
         "docx_native": 18,
         "embedded_image_ocr": 5
       },
-      "gate_single_pass": "APPROVED",
-      "gate_multi_pass": "APPROVED",
+      "gate_single_pass": "BLOCKED",
+      "gate_multi_pass": "BLOCKED",
       "redaction_structure_preservation": 1.0,
       "extraction_fidelity": {
         "kind": "xml_reference",
@@ -164,6 +187,28 @@
         "reference_paragraphs": 18,
         "located_paragraphs": 17,
         "reference_cells": 12
+      },
+      "pipeline": {
+        "detected_count": 11,
+        "redacted_count": 11,
+        "residual_detection_count": 0,
+        "passes_executed": 1
+      },
+      "extraction_coverage": {
+        "pages": {
+          "native": 0,
+          "ocr": 0,
+          "failed": 0
+        },
+        "embedded_images": {
+          "attempted": 1,
+          "succeeded": 1,
+          "failed": 0,
+          "skipped": 0,
+          "skipped_tiny": 0,
+          "skipped_vector": 0
+        },
+        "warning_count": 0
       },
       "overall": {
         "occurrences": 14,
@@ -311,7 +356,7 @@
     {
       "file": "holdout_scan.pdf",
       "ground_truth_rows": 12,
-      "seconds": 8.7,
+      "seconds": 9.3,
       "blocks_by_method": {
         "figure_ocr": 4,
         "ocr": 15
@@ -320,6 +365,28 @@
       "gate_multi_pass": "APPROVED",
       "redaction_structure_preservation": 1.0,
       "extraction_fidelity": null,
+      "pipeline": {
+        "detected_count": 14,
+        "redacted_count": 14,
+        "residual_detection_count": 0,
+        "passes_executed": 1
+      },
+      "extraction_coverage": {
+        "pages": {
+          "native": 0,
+          "ocr": 1,
+          "failed": 0
+        },
+        "embedded_images": {
+          "attempted": 0,
+          "succeeded": 0,
+          "failed": 0,
+          "skipped": 0,
+          "skipped_tiny": 0,
+          "skipped_vector": 0
+        },
+        "warning_count": 0
+      },
       "overall": {
         "occurrences": 17,
         "detected": 13,

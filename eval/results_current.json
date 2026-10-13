@@ -1,0 +1,598 @@
+{
+  "label": "after fixes (main 80b5b46)",
+  "date": "2026-10-13",
+  "platform": "Windows 10.0.26300, Python 3.11.15",
+  "git_commit": "80b5b46158615d1c82a58a5bc303ff3fd5fd214c",
+  "spacy_model": "en_core_web_sm",
+  "omp_thread_limit": "1",
+  "files": [
+    {
+      "file": "Cadence_Financial_Group_Organizational_Pack.pptx",
+      "ground_truth_rows": 122,
+      "seconds": 6.0,
+      "blocks_by_method": {
+        "pptx_native": 373
+      },
+      "gate_single_pass": "APPROVED",
+      "gate_multi_pass": "APPROVED",
+      "redaction_structure_preservation": 1.0,
+      "extraction_fidelity": {
+        "kind": "xml_reference",
+        "character_coverage": 1.0,
+        "reading_order": 1.0,
+        "table_cells": 1.0,
+        "reference_paragraphs": 410,
+        "located_paragraphs": 266,
+        "reference_cells": 224
+      },
+      "pipeline": {
+        "detected_count": 122,
+        "redacted_count": 122,
+        "residual_detection_count": 0,
+        "passes_executed": 1
+      },
+      "extraction_coverage": {
+        "pages": {
+          "native": 0,
+          "ocr": 0,
+          "failed": 0
+        },
+        "embedded_images": {
+          "attempted": 0,
+          "succeeded": 0,
+          "failed": 0,
+          "skipped": 1,
+          "skipped_tiny": 1,
+          "skipped_vector": 0
+        },
+        "warning_count": 1
+      },
+      "overall": {
+        "occurrences": 122,
+        "detected": 122,
+        "residual": 0,
+        "detections": 122,
+        "true_positives": 122,
+        "false_positives": 0,
+        "recall": 1.0,
+        "precision": 1.0,
+        "f1": 1.0,
+        "residual_rate": 0.0
+      },
+      "by_type": {
+        "EMAIL": {
+          "occurrences": 34,
+          "detected": 34,
+          "residual": 0,
+          "detections": 34,
+          "true_positives": 34,
+          "false_positives": 0,
+          "recall": 1.0,
+          "precision": 1.0,
+          "f1": 1.0,
+          "residual_rate": 0.0
+        },
+        "PERSON": {
+          "occurrences": 54,
+          "detected": 54,
+          "residual": 0,
+          "detections": 54,
+          "true_positives": 54,
+          "false_positives": 0,
+          "recall": 1.0,
+          "precision": 1.0,
+          "f1": 1.0,
+          "residual_rate": 0.0
+        },
+        "PHONE": {
+          "occurrences": 34,
+          "detected": 34,
+          "residual": 0,
+          "detections": 34,
+          "true_positives": 34,
+          "false_positives": 0,
+          "recall": 1.0,
+          "precision": 1.0,
+          "f1": 1.0,
+          "residual_rate": 0.0
+        }
+      },
+      "by_channel": {
+        "native": {
+          "occurrences": 122,
+          "detected": 122,
+          "residual": 0,
+          "detections": 0,
+          "true_positives": 0,
+          "false_positives": 0,
+          "recall": 1.0,
+          "precision": null,
+          "f1": null,
+          "residual_rate": 0.0
+        }
+      },
+      "by_location": {
+        "body": {
+          "occurrences": 54,
+          "detected": 54,
+          "residual": 0,
+          "detections": 0,
+          "true_positives": 0,
+          "false_positives": 0,
+          "recall": 1.0,
+          "precision": null,
+          "f1": null,
+          "residual_rate": 0.0
+        },
+        "prose": {
+          "occurrences": 6,
+          "detected": 6,
+          "residual": 0,
+          "detections": 0,
+          "true_positives": 0,
+          "false_positives": 0,
+          "recall": 1.0,
+          "precision": null,
+          "f1": null,
+          "residual_rate": 0.0
+        },
+        "table": {
+          "occurrences": 62,
+          "detected": 62,
+          "residual": 0,
+          "detections": 0,
+          "true_positives": 0,
+          "false_positives": 0,
+          "recall": 1.0,
+          "precision": null,
+          "f1": null,
+          "residual_rate": 0.0
+        }
+      },
+      "not_extracted": 0,
+      "fuzzy_matches": 0,
+      "uncertain_rows": 0,
+      "false_positive_types": {}
+    },
+    {
+      "file": "Cadence_Group_Risk_Management_Policy__v6.0.pdf",
+      "ground_truth_rows": 889,
+      "seconds": 103.0,
+      "blocks_by_method": {
+        "figure_ocr": 422,
+        "ocr": 1880
+      },
+      "gate_single_pass": "APPROVED",
+      "gate_multi_pass": "APPROVED",
+      "redaction_structure_preservation": 1.0,
+      "extraction_fidelity": {
+        "kind": "transcription",
+        "cer": 0.0018,
+        "line_order": 0.825,
+        "pages": [
+          {
+            "page": 3,
+            "cer": 0.0028,
+            "line_order": 1.0,
+            "reference_lines": 55,
+            "found_lines": 55,
+            "reference_characters": 4688
+          },
+          {
+            "page": 5,
+            "cer": 0.002,
+            "line_order": 0.6184,
+            "reference_lines": 48,
+            "found_lines": 48,
+            "reference_characters": 4506
+          },
+          {
+            "page": 8,
+            "cer": 0.0007,
+            "line_order": 0.9143,
+            "reference_lines": 71,
+            "found_lines": 71,
+            "reference_characters": 4362
+          }
+        ]
+      },
+      "pipeline": {
+        "detected_count": 1121,
+        "redacted_count": 1121,
+        "residual_detection_count": 0,
+        "passes_executed": 1
+      },
+      "extraction_coverage": {
+        "pages": {
+          "native": 0,
+          "ocr": 35,
+          "failed": 0
+        },
+        "embedded_images": {
+          "attempted": 0,
+          "succeeded": 0,
+          "failed": 0,
+          "skipped": 0,
+          "skipped_tiny": 0,
+          "skipped_vector": 0
+        },
+        "warning_count": 0
+      },
+      "overall": {
+        "occurrences": 1025,
+        "detected": 998,
+        "residual": 26,
+        "detections": 1121,
+        "true_positives": 1038,
+        "false_positives": 62,
+        "recall": 0.9737,
+        "precision": 0.9436,
+        "f1": 0.9584,
+        "residual_rate": 0.0254
+      },
+      "by_type": {
+        "ADDRESS": {
+          "occurrences": 3,
+          "detected": 3,
+          "residual": 0,
+          "detections": 4,
+          "true_positives": 3,
+          "false_positives": 0,
+          "recall": 1.0,
+          "precision": 1.0,
+          "f1": 1.0,
+          "residual_rate": 0.0
+        },
+        "DATE_OF_BIRTH": {
+          "occurrences": 5,
+          "detected": 5,
+          "residual": 0,
+          "detections": 9,
+          "true_positives": 5,
+          "false_positives": 4,
+          "recall": 1.0,
+          "precision": 0.5556,
+          "f1": 0.7143,
+          "residual_rate": 0.0
+        },
+        "EMAIL": {
+          "occurrences": 178,
+          "detected": 172,
+          "residual": 6,
+          "detections": 201,
+          "true_positives": 173,
+          "false_positives": 12,
+          "recall": 0.9663,
+          "precision": 0.9351,
+          "f1": 0.9505,
+          "residual_rate": 0.0337
+        },
+        "EMPLOYEE_ID": {
+          "occurrences": 203,
+          "detected": 200,
+          "residual": 3,
+          "detections": 206,
+          "true_positives": 203,
+          "false_positives": 3,
+          "recall": 0.9852,
+          "precision": 0.9854,
+          "f1": 0.9853,
+          "residual_rate": 0.0148
+        },
+        "FINANCIAL_ACCOUNT": {
+          "occurrences": 2,
+          "detected": 2,
+          "residual": 0,
+          "detections": 2,
+          "true_positives": 2,
+          "false_positives": 0,
+          "recall": 1.0,
+          "precision": 1.0,
+          "f1": 1.0,
+          "residual_rate": 0.0
+        },
+        "GOVERNMENT_ID": {
+          "occurrences": 12,
+          "detected": 11,
+          "residual": 1,
+          "detections": 14,
+          "true_positives": 11,
+          "false_positives": 2,
+          "recall": 0.9167,
+          "precision": 0.8462,
+          "f1": 0.88,
+          "residual_rate": 0.0833
+        },
+        "IP_ADDRESS": {
+          "occurrences": 3,
+          "detected": 1,
+          "residual": 2,
+          "detections": 2,
+          "true_positives": 1,
+          "false_positives": 1,
+          "recall": 0.3333,
+          "precision": 0.5,
+          "f1": 0.4,
+          "residual_rate": 0.6667
+        },
+        "LOCATION": {
+          "occurrences": 1,
+          "detected": 1,
+          "residual": 0,
+          "detections": 27,
+          "true_positives": 2,
+          "false_positives": 25,
+          "recall": 1.0,
+          "precision": 0.0741,
+          "f1": 0.1379,
+          "residual_rate": 0.0
+        },
+        "PERSON": {
+          "occurrences": 457,
+          "detected": 447,
+          "residual": 9,
+          "detections": 455,
+          "true_positives": 447,
+          "false_positives": 6,
+          "recall": 0.9781,
+          "precision": 0.9868,
+          "f1": 0.9824,
+          "residual_rate": 0.0197
+        },
+        "PHONE": {
+          "occurrences": 161,
+          "detected": 156,
+          "residual": 5,
+          "detections": 201,
+          "true_positives": 191,
+          "false_positives": 9,
+          "recall": 0.9689,
+          "precision": 0.955,
+          "f1": 0.9619,
+          "residual_rate": 0.0311
+        }
+      },
+      "by_channel": {
+        "image": {
+          "occurrences": 110,
+          "detected": 91,
+          "residual": 18,
+          "detections": 0,
+          "true_positives": 0,
+          "false_positives": 0,
+          "recall": 0.8273,
+          "precision": null,
+          "f1": null,
+          "residual_rate": 0.1636
+        },
+        "ocr": {
+          "occurrences": 915,
+          "detected": 907,
+          "residual": 8,
+          "detections": 0,
+          "true_positives": 0,
+          "false_positives": 0,
+          "recall": 0.9913,
+          "precision": null,
+          "f1": null,
+          "residual_rate": 0.0087
+        }
+      },
+      "by_location": {
+        "body": {
+          "occurrences": 12,
+          "detected": 12,
+          "residual": 0,
+          "detections": 0,
+          "true_positives": 0,
+          "false_positives": 0,
+          "recall": 1.0,
+          "precision": null,
+          "f1": null,
+          "residual_rate": 0.0
+        },
+        "image": {
+          "occurrences": 110,
+          "detected": 91,
+          "residual": 18,
+          "detections": 0,
+          "true_positives": 0,
+          "false_positives": 0,
+          "recall": 0.8273,
+          "precision": null,
+          "f1": null,
+          "residual_rate": 0.1636
+        },
+        "prose": {
+          "occurrences": 71,
+          "detected": 68,
+          "residual": 3,
+          "detections": 0,
+          "true_positives": 0,
+          "false_positives": 0,
+          "recall": 0.9577,
+          "precision": null,
+          "f1": null,
+          "residual_rate": 0.0423
+        },
+        "table": {
+          "occurrences": 832,
+          "detected": 827,
+          "residual": 5,
+          "detections": 0,
+          "true_positives": 0,
+          "false_positives": 0,
+          "recall": 0.994,
+          "precision": null,
+          "f1": null,
+          "residual_rate": 0.006
+        }
+      },
+      "not_extracted": 26,
+      "fuzzy_matches": 72,
+      "uncertain_rows": 20,
+      "false_positive_types": {
+        "DATE_OF_BIRTH": 4,
+        "EMAIL": 12,
+        "EMPLOYEE_ID": 3,
+        "GOVERNMENT_ID": 2,
+        "IP_ADDRESS": 1,
+        "LOCATION": 25,
+        "PERSON": 6,
+        "PHONE": 9
+      }
+    },
+    {
+      "file": "Cadence_TPRM_Training.docx",
+      "ground_truth_rows": 26,
+      "seconds": 49.7,
+      "blocks_by_method": {
+        "docx_native": 1285,
+        "embedded_image_ocr": 742
+      },
+      "gate_single_pass": "BLOCKED",
+      "gate_multi_pass": "BLOCKED",
+      "redaction_structure_preservation": 1.0,
+      "extraction_fidelity": {
+        "kind": "xml_reference",
+        "character_coverage": 0.9882,
+        "reading_order": 1.0,
+        "table_cells": 0.9939,
+        "reference_paragraphs": 2383,
+        "located_paragraphs": 2010,
+        "reference_cells": 983
+      },
+      "pipeline": {
+        "detected_count": 58,
+        "redacted_count": 58,
+        "residual_detection_count": 0,
+        "passes_executed": 1
+      },
+      "extraction_coverage": {
+        "pages": {
+          "native": 0,
+          "ocr": 0,
+          "failed": 0
+        },
+        "embedded_images": {
+          "attempted": 33,
+          "succeeded": 33,
+          "failed": 0,
+          "skipped": 7,
+          "skipped_tiny": 2,
+          "skipped_vector": 5
+        },
+        "warning_count": 7
+      },
+      "overall": {
+        "occurrences": 49,
+        "detected": 49,
+        "residual": 0,
+        "detections": 58,
+        "true_positives": 48,
+        "false_positives": 10,
+        "recall": 1.0,
+        "precision": 0.8276,
+        "f1": 0.9057,
+        "residual_rate": 0.0
+      },
+      "by_type": {
+        "LOCATION": {
+          "occurrences": 0,
+          "detected": 0,
+          "residual": 0,
+          "detections": 3,
+          "true_positives": 0,
+          "false_positives": 3,
+          "recall": null,
+          "precision": 0.0,
+          "f1": null,
+          "residual_rate": null
+        },
+        "PERSON": {
+          "occurrences": 49,
+          "detected": 49,
+          "residual": 0,
+          "detections": 55,
+          "true_positives": 48,
+          "false_positives": 7,
+          "recall": 1.0,
+          "precision": 0.8727,
+          "f1": 0.932,
+          "residual_rate": 0.0
+        }
+      },
+      "by_channel": {
+        "image": {
+          "occurrences": 21,
+          "detected": 21,
+          "residual": 0,
+          "detections": 0,
+          "true_positives": 0,
+          "false_positives": 0,
+          "recall": 1.0,
+          "precision": null,
+          "f1": null,
+          "residual_rate": 0.0
+        },
+        "native": {
+          "occurrences": 28,
+          "detected": 28,
+          "residual": 0,
+          "detections": 0,
+          "true_positives": 0,
+          "false_positives": 0,
+          "recall": 1.0,
+          "precision": null,
+          "f1": null,
+          "residual_rate": 0.0
+        }
+      },
+      "by_location": {
+        "image": {
+          "occurrences": 21,
+          "detected": 21,
+          "residual": 0,
+          "detections": 0,
+          "true_positives": 0,
+          "false_positives": 0,
+          "recall": 1.0,
+          "precision": null,
+          "f1": null,
+          "residual_rate": 0.0
+        },
+        "table": {
+          "occurrences": 28,
+          "detected": 28,
+          "residual": 0,
+          "detections": 0,
+          "true_positives": 0,
+          "false_positives": 0,
+          "recall": 1.0,
+          "precision": null,
+          "f1": null,
+          "residual_rate": 0.0
+        }
+      },
+      "not_extracted": 0,
+      "fuzzy_matches": 1,
+      "uncertain_rows": 0,
+      "false_positive_types": {
+        "LOCATION": 3,
+        "PERSON": 7
+      }
+    }
+  ],
+  "total": {
+    "occurrences": 1196,
+    "detected": 1169,
+    "residual": 26,
+    "detections": 1301,
+    "true_positives": 1208,
+    "false_positives": 72,
+    "recall": 0.9774,
+    "precision": 0.9437,
+    "f1": 0.9603,
+    "residual_rate": 0.0217
+  }
+}
