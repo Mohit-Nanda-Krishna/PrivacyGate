@@ -248,9 +248,9 @@ def test_wrapped_country_code_alone_is_a_fragment_only_with_its_plus_sign():
 
 
 def test_wrapped_fragments_must_keep_their_digit_groups():
-    # "1971" must not be paired with the "1 (971" of a phone on the next line.
-    document = _doc(_block("b1", "born 22 August 19711, lives"), _block("b2", "callback +1 (971) 555-0591"))
-    [occurrence] = locate_ground_truth([_row("22 August 1971", "DATE_OF_BIRTH")], build_page_texts(document))
+    # "1983" must not be paired with the "1 (983" of a phone on the next line.
+    document = _doc(_block("b1", "born 14 March 19833, lives"), _block("b2", "callback +1 (983) 555-0164"))
+    [occurrence] = locate_ground_truth([_row("14 March 1983", "DATE_OF_BIRTH")], build_page_texts(document))
     assert not occurrence.extracted
 
 
