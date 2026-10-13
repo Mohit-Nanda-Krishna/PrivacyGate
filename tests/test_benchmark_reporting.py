@@ -28,11 +28,14 @@ def _score(recall, precision, residual, occurrences=10):
 
 
 def _report(label, recall, precision, residual, gate):
-    item = {"file": "sample.docx", "seconds": 1.0, "structure_retention": 1.0, "gate_single_pass": gate,
+    item = {"file": "sample.docx", "seconds": 1.0, "redaction_structure_preservation": 1.0, "gate_single_pass": gate,
             "gate_multi_pass": gate, "overall": _score(recall, precision, residual),
             "by_channel": {"native": _score(recall, precision, residual)}, "by_type": {},
             "not_extracted": 0, "fuzzy_matches": 0, "uncertain_rows": 0, "false_positive_types": {},
-            "blocks_by_method": {"docx_native": 3}, "ground_truth_rows": 10}
+            "blocks_by_method": {"docx_native": 3}, "ground_truth_rows": 10,
+            "extraction_fidelity": {"kind": "xml_reference", "character_coverage": 0.987, "reading_order": 0.95,
+                                    "table_cells": 0.9, "reference_paragraphs": 40, "located_paragraphs": 38,
+                                    "reference_cells": 10}}
     return {"label": label, "date": "2026-10-08", "platform": "test", "spacy_model": "en_core_web_sm",
             "omp_thread_limit": "1", "files": [item], "total": _score(recall, precision, residual)}
 
@@ -67,7 +70,11 @@ def test_benchmark_tab_shows_measured_numbers_not_constants(tmp_path, monkeypatc
     assert metrics["Residual PII rate"] == "20.0%"
     # The per-document section computes its own values; the old constant cards are gone.
     assert "Residual PII Leakage" not in metrics and "Deterministic Overlap Rate" not in metrics
-    assert "Structure Retention" in metrics  # computed for the current document
+    assert "Redaction structure preservation" in metrics  # computed for the current document
+    tables = [table.value for table in app.dataframe]
+    fidelity = next(table for table in tables if "Character coverage" in table.columns)
+    assert list(fidelity["Character coverage"]) == ["98.7%"] and list(fidelity["Table cells"]) == ["90.0%"]
+    assert any("Character coverage" in str(block.value) and "OCR CER" in str(block.value) for block in app.markdown)
 
 
 def test_benchmark_tab_without_results_shows_how_to_measure(tmp_path, monkeypatch):

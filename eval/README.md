@@ -83,5 +83,41 @@ To include a row, change `uncertain` to blank. To drop one, delete the row.
   located in figures/screenshots (`location_type = image`) or text from embedded-image OCR.
 - **Gate:** the single-pass and two-pass (app "Multi-Pass") privacy gate decisions are both
   reported; detection metrics use the first-pass detections.
-- **Structure retention** uses `measure_structure_retention` (block-level alignment between
-  the original and sanitized documents).
+- **Redaction structure preservation** (formerly "structure retention") uses
+  `measure_redaction_structure_preservation`: the share of extracted blocks that sanitization
+  kept in place (same id, page/slide/paragraph, non-empty text). Redaction never drops or moves
+  blocks, so it is normally 100%; it says nothing about how well extraction captured the file.
+
+## Extraction fidelity
+
+How faithfully extraction captures the source file, scored against references built without
+the extractors (`src/privacygate/structure.py`). `scripts/evaluate.py` reports it per file.
+
+**DOCX and PPTX: XML reference.** The reference is read straight from the file's XML:
+every paragraph of the body, tables (cells by row and grid column), text boxes (where they are
+anchored), shapes and groups, header/footer parts and speaker notes, in document order.
+Only native extracted blocks are compared; embedded-image OCR has no XML counterpart.
+
+- **Character coverage** = letters and digits of the reference found in the extracted text
+  (word multiset, each word weighted by its length) ÷ all reference letters and digits.
+- **Reading order** = of consecutive reference paragraphs that are found in the extracted
+  text (paragraphs of 8+ characters, looked up in order), the share found in the same order.
+- **Table cells** = non-empty reference cells extracted with the same text at the same
+  row and column ÷ all non-empty reference cells (body tables in DOCX, every table in PPTX).
+
+**Scanned PDF: hand transcriptions.** `reference/<pdf stem>/page_NN.txt` are transcriptions
+of three policy pages, typed from the rendered page images: page 3 (mostly prose), page 5 (a
+full-page definitions table) and page 8 (the three-lines-model figure plus prose and a table).
+One visual line per line, table rows read across the row, the figure read box by box; lines
+starting with `#` are comments. They contain the same synthetic case-study data as the ground
+truth CSVs.
+
+- **OCR CER** = character errors ÷ reference characters. Each reference line is matched to the
+  OCR line that covers most of it and scored by edit distance against the closest stretch of
+  that line; an uncovered rest (OCR read a table row's cells as separate lines) is matched
+  again on its own, and a line or rest with no match counts all its characters as errors.
+- **Line order** = over the matched pieces in reference order, the share of consecutive pairs
+  whose positions in the extracted text also increase. A table read column by column instead
+  of row by row loses line order, not characters.
+
+To add a page, transcribe it into a new `page_NN.txt`; it is picked up on the next run.

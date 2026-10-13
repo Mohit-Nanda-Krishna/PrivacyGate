@@ -17,7 +17,7 @@ import streamlit as st
 from privacygate.audit import audit_report_to_json
 from privacygate.detection import DetectionError
 from privacygate.extraction import ExtractionError
-from privacygate.evaluation import measure_structure_retention
+from privacygate.evaluation import measure_redaction_structure_preservation
 from privacygate.models import PIIEntity
 from privacygate.derivatives import REVIEW_WATERMARK, redact_pdf
 from privacygate.llm import GateRefusedError, build_llm_payload, mock_llm_call
@@ -683,13 +683,13 @@ if "pipeline_result" in st.session_state and st.session_state["pipeline_result"]
         st.markdown(
             """
             These metrics reflect the current document's processing results.
-            Structure retention is measured by comparing original and sanitized
-            document blocks. Residual PII is based on the firewall's validation
-            scan. Detection precision and recall require a ground-truth dataset.
+            Residual PII is based on the firewall's validation scan. Detection
+            precision and recall, and extraction fidelity, need references and
+            are measured on the labelled case-study files below.
             """
         )
 
-        structure_retention = measure_structure_retention(
+        redaction_preservation = measure_redaction_structure_preservation(
             doc.blocks,
             sanitized.blocks,
         )
@@ -698,9 +698,10 @@ if "pipeline_result" in st.session_state and st.session_state["pipeline_result"]
         b1, b2, b3 = st.columns(3)
 
         b1.metric(
-            "Structure Retention",
-            f"{structure_retention:.1%}",
-            "Target: >=80%",
+            "Redaction structure preservation",
+            f"{redaction_preservation:.1%}",
+            help="Share of extracted blocks that sanitization kept in place (same id, location, non-empty text). "
+                 "It does not measure how well extraction captured the file.",
         )
 
         b2.metric(
@@ -762,12 +763,38 @@ if "pipeline_result" in st.session_state and st.session_state["pipeline_result"]
                     "Recall": _fmt(item["overall"]["recall"]),
                     "Precision": _fmt(item["overall"]["precision"]),
                     "Residual PII": _fmt(item["overall"]["residual_rate"]),
-                    "Structure retention": _fmt(item["structure_retention"]),
+                    "Redaction structure preservation": _fmt(
+                        item.get("redaction_structure_preservation", item.get("structure_retention"))),
                     "Gate (1 pass)": item["gate_single_pass"],
                     "Gate (2 passes)": item["gate_multi_pass"],
                 } for item in benchmark["files"]]),
                 use_container_width=True, hide_index=True,
             )
+            st.caption("Redaction structure preservation: share of extracted blocks that sanitization kept in place; "
+                       "it does not measure extraction.")
+            fidelity_rows = [item for item in benchmark["files"] if item.get("extraction_fidelity")]
+            if fidelity_rows:
+                st.markdown("##### Extraction fidelity")
+                st.dataframe(
+                    pd.DataFrame([{
+                        "File": item["file"],
+                        "Reference": "XML of the file" if item["extraction_fidelity"]["kind"] == "xml_reference"
+                        else "hand transcription, pages " + ", ".join(
+                            str(page["page"]) for page in item["extraction_fidelity"]["pages"]),
+                        "Character coverage": _fmt(item["extraction_fidelity"].get("character_coverage")),
+                        "Reading order": _fmt(item["extraction_fidelity"].get("reading_order",
+                                                                              item["extraction_fidelity"].get("line_order"))),
+                        "Table cells": _fmt(item["extraction_fidelity"].get("table_cells")),
+                        "OCR CER": _fmt(item["extraction_fidelity"].get("cer")),
+                    } for item in fidelity_rows]),
+                    use_container_width=True, hide_index=True,
+                )
+                st.markdown(
+                    "- **Character coverage**: share of the reference's letters and digits found in the extracted text.\n"
+                    "- **Reading order**: share of consecutive reference paragraphs/lines found in the same order.\n"
+                    "- **Table cells**: share of reference table cells extracted with the same text at the same row/column.\n"
+                    "- **OCR CER**: character error rate of OCR against hand-transcribed scanned pages (lower is better)."
+                )
             chart = Path("eval/results_chart.png")
             if chart.exists() and benchmark_path.name == "results_after.json":
                 st.image(str(chart), caption="Before vs after (eval/results_after.md)")
