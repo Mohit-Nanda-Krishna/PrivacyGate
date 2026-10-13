@@ -417,6 +417,11 @@ if "pipeline_result" in st.session_state and st.session_state["pipeline_result"]
                 f"document metadata removed. Masks follow the final sanitized text; scanned pages "
                 f"have the image pixels under each mask destroyed."
                 + (f" {masked.unlocated} replaced spans could not be placed on the page." if masked.unlocated else "")
+                + (f" {masked.unreadable_figures} figure regions masked as unreadable."
+                   if masked.unreadable_figures else "")
+                + (f" {masked.photos} photo or barcode regions masked." if masked.photos else "")
+                + (f" Figure scan failed on {masked.figure_scan_failures} pages: figures there may be unmasked."
+                   if masked.figure_scan_failures else "")
             )
             pdf_name = f"{Path(doc.filename).stem}_redacted.pdf"
             if approved:
@@ -533,6 +538,10 @@ if "pipeline_result" in st.session_state and st.session_state["pipeline_result"]
         m4.metric("Medium Risk", audit.counts_by_risk.get("MEDIUM", 0))
         avg_conf = (sum(e.confidence for e in entities) / len(entities)) if entities else 0.0
         m5.metric("Avg Confidence", f"{avg_conf:.0%}")
+        if audit.unreadable_figures:
+            st.info(f"{audit.unreadable_figures} figure(s) could not be read reliably: their text is withheld "
+                    "from the sanitized output as [FIGURE_UNREADABLE_n] and the figures are masked in the "
+                    "redacted PDF.")
 
         if audit.counts_by_location:
             st.markdown("#### PII by Location")

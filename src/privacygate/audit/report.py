@@ -129,8 +129,12 @@ def generate_audit_report(
     detected_entities: Sequence[PIIEntity],
     redacted_count: int,
     validation_result: ValidationResult,
+    unreadable_figures: int = 0,
 ) -> AuditReport:
-    """Store aggregate metrics and allowlisted structural metadata, never source text."""
+    """Store aggregate metrics and allowlisted structural metadata, never source text.
+
+    unreadable_figures: figures withheld from the sanitized text as [FIGURE_UNREADABLE_n].
+    """
     counts_by_category: dict[str, int] = {}
     for entity in detected_entities:
         category = entity.entity_type if entity.entity_type in ENTITY_TYPES else "OTHER"
@@ -163,6 +167,7 @@ def generate_audit_report(
         counts_by_location=counts_by_location,
         embedded_images=images,
         extraction_warning_count=len(warnings) if type(warnings) is list else 0,
+        unreadable_figures=_safe_count(unreadable_figures),
     )
 
 
@@ -189,6 +194,7 @@ def audit_report_to_dict(report: AuditReport) -> dict[str, Any]:
             "failed_pages": [entry["page"] for entry in pages if entry["status"] == "failed"],
             "embedded_images": images,
             "warnings": {"count": _safe_count(report.extraction_warning_count)},
+            "unreadable_figures_withheld": _safe_count(report.unreadable_figures),
         },
     }
 

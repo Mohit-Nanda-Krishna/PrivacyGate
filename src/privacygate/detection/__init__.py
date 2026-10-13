@@ -21,6 +21,13 @@ from privacygate.detection.names import (
     role_context_names,
     sweep_names,
 )
+from privacygate.detection.ocr_text import (
+    absorb_ocr_initials,
+    column_role_names,
+    ocr_emails,
+    ocr_identifiers,
+    ocr_surnames,
+)
 from privacygate.detection.presidio_detector import (
     PresidioDetector,
     detect_presidio,
@@ -161,6 +168,9 @@ def detect_pii_with_registry(
        form a per-document registry; single-token NER names survive only if
        the registry confirms them.
     4. Every block is swept for registered names and their variants.
+    5. OCR'd text only: damaged e-mails, damaged registered surnames and the
+       initials in front of names, labelled passport/PAN numbers, damaged IPs,
+       and names under person columns of OCR'd tables (detection/ocr_text.py).
     """
     allowed = frozenset(DEFAULT_ALLOWLIST | {word.lower() for word in (allowlist or ())})
     try:
@@ -180,7 +190,11 @@ def detect_pii_with_registry(
                 candidate = make_entity(block, "PERSON", *match.span(), 0.8, "pattern:name_with_initial")
                 findings[block.block_id].extend(clean_ner_entity(block, candidate, allowed))
         role_blocks, role_names = _role_context(blocks, allowed)
-        for entity in _header_phone_entities(blocks) + _stitched_country_codes(blocks, findings) + role_names:
+        column_names = column_role_names(blocks, allowed)
+        role_blocks |= {entity.block_id for entity in column_names}
+        damaged_emails = ocr_emails(blocks, [e for found in findings.values() for e in found], allowed)
+        for entity in (_header_phone_entities(blocks) + _stitched_country_codes(blocks, findings)
+                       + role_names + column_names + damaged_emails + ocr_identifiers(blocks)):
             findings[entity.block_id].append(entity)
 
         texts = {block.block_id: block.text for block in blocks}
@@ -205,7 +219,10 @@ def detect_pii_with_registry(
                 or not is_single_token(entity)
                 or registry.find(texts[block_id][entity.start:entity.end])
             ]
-        for entity in sweep_names(blocks, registry):
+        for entity in sweep_names(blocks, registry) + ocr_surnames(blocks, registry):
+            findings[entity.block_id].append(entity)
+        people = [entity for found in findings.values() for entity in found if entity.entity_type == "PERSON"]
+        for entity in absorb_ocr_initials(blocks, people):
             findings[entity.block_id].append(entity)
 
         entities: list[PIIEntity] = []

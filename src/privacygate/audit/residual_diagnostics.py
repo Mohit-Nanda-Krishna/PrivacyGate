@@ -40,6 +40,7 @@ _ALLOWED_EXTRACTION_METHODS = frozenset({
     "pptx_native",
     "ocr",
     "embedded_image_ocr",
+    "figure_ocr",
 })
 
 # Every detector name the pipeline emits. tests/test_residual_diagnostics.py checks
@@ -77,6 +78,12 @@ _ALLOWED_DETECTORS = frozenset({
     "custom:account_number",
     "custom:personnel_id",
     "name_sweep",
+    "name_sweep_ocr",
+    "pattern:ocr_email",
+    "pattern:ocr_labelled_id",
+    "pattern:ocr_ip",
+    "pattern:ocr_dob",
+    "context:column_role",
     "pattern:name_with_initial",
     "context:table_header",
     "context:split_phone",
