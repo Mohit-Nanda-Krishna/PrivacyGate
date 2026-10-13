@@ -433,3 +433,87 @@ Phase 5 completed. Moving to Phase 6: Final Polish, Documentation & Verification
 - `uv run pytest`: **143 passed, 3 skipped in 12.26s**, exit code 0. Zero failures.
 - `http://localhost:8501/_stcore/health`: Returns HTTP 200, status `ok`.
 
+## Measured hardening against labelled ground truth (2026-10-07 to 2026-10-08)
+
+Earlier sections recorded quality as targets ("100% structure retention, 0% residual leakage",
+"Pass 2 ... achieves APPROVED with 0 residual PII"). Those were not measured against labelled data.
+This phase measured them and superseded those claims with the numbers below.
+
+### Completed
+
+- **Ground truth + benchmark** (#2, #6): `eval/ground_truth/` labels 1,018 PII values across the three
+  Cadence files, including image-only values in figures and screenshots; `scripts/evaluate.py` reports
+  recall, precision, F1, residual PII rate, structure retention, native/OCR/image recall and the
+  single-pass and two-pass gate decisions.
+- **OCR reliability** (#4): per-page OCR status, one retry with a longer timeout, single-threaded
+  Tesseract run in parallel; a failed page blocks the gate without discarding other pages.
+- **Detection gaps** (#5, #11): per-document name registry sweep, role-labelled table cells as person
+  context, new patterns (short/labelled phones, PAN, passport, PESEL, SSN last four, DOB,
+  card/account endings, US addresses, EMP/DIR/MER IDs incl. OCR damage), allowlist for NER noise,
+  fixed international phone pattern; independent gate checks that do not use NER, so a second pass
+  cannot approve PII the detectors missed.
+- **Embedded content** (#7): DOCX headers/footers/text boxes, PPTX speaker notes, OCR of embedded
+  raster images; PII counts by location in the audit report.
+- **Stable tokens**: Mohit's `PseudonymSession` (#8-#10) plus a batch-level session and cross-file
+  identity view (#12); redacted PDF download with the same page count and a "What the AI model sees"
+  view with a mock model call that refuses unless the gate approved (#13).
+- **Reporting**: `scripts/compare_results.py` writes `eval/results_after.md` (before/after tables,
+  caveats, recall by location type: body / table / prose / image) and `eval/results_chart.png`.
+  The Quality Benchmark tab keeps the per-document metrics from #14 and adds the measured
+  benchmark from `eval/`; hard-coded quality figures were removed from the app and README.
+
+### Results (`eval/results_after.md`)
+
+After = main `163b517` (includes #11, #12, #14). Open PR #13 changes no detection: main + #13 measured identical.
+
+| File | Recall | Precision | Residual PII rate | Gate 1 pass / 2 passes |
+|---|---|---|---|---|
+| Org pack (PPTX) | 63.9% -> 100.0% | 91.8% -> 100.0% | 36.1% -> 0.0% | APPROVED / APPROVED |
+| Risk policy (PDF, 35 scanned pages) | 62.0% -> 92.3% | 82.3% -> 94.7% | 41.5% -> 8.5% | BLOCKED / BLOCKED (was BLOCKED / APPROVED) |
+| TPRM training (DOCX) | 75.0% -> 95.9% | 8.0% -> 82.1% | 25.0% -> 6.1% | APPROVED / APPROVED (was BLOCKED / APPROVED) |
+| All files | 62.6% -> 93.3% | 64.1% -> 94.6% | 40.4% -> 7.4% | |
+
+PDF pipeline time fell from 148 s to 74 s (parallel OCR).
+
+Recall by location (PDF): body 100%, tables 99.2%, narrative prose 95.7%, image-only 25.0%.
+DOCX: tables 100%, screenshots 90.5%.
+
+### Verification
+
+- Windows 11, Python 3.11.15, uv 0.11.2, Tesseract 5.4.0, spaCy `en_core_web_sm` 3.8.0.
+- `uv run pytest`: 303 passed on this branch; 307 passed on main + #13 combined.
+
+### Known issues
+
+- **The DOCX is APPROVED with 3 labelled occurrences unredacted.** Two names appear once, only in
+  screenshots, with no label, so no detector or independent check finds them.
+- PDF figure/image content: 25% recall (21/84); OCR of small figure text is poor.
+- NER LOCATION tags of countries and cities remain the largest precision cost on the PDF (kept per PRD).
+- `en_core_web_lg` has much better raw NER precision but gave no measurable gain after the filters;
+  decision left to the team (numbers in #5).
+- The benchmark covers three synthetic case-study files only; numbers do not generalise.
+
+### Next recommended task
+
+Close the screenshot-name gap (e.g. person-name shapes in screenshot table rows with a date column)
+and decide whether standalone NER LOCATION should be kept.
+
+## Extraction fidelity measurement (2026-10-13)
+
+### Completed
+
+- `privacygate.structure`: DOCX/PPTX scored against a reference read from the file's XML
+  (character coverage, reading order, table-cell preservation); the scanned PDF scored against
+  hand transcriptions of pages 3, 5 and 8 in `eval/reference/` (OCR character error rate, line order).
+- The old block-alignment metric is renamed "redaction structure preservation"; both are reported
+  by `scripts/evaluate.py` and shown in the benchmark tab with definitions (`eval/README.md`).
+
+### Open issues (found by the new metric, not fixed)
+
+- **DOCX content controls are not extracted.** Text inside `w:sdt` content controls (the table
+  of contents and the cover-page tables) is missing from the extraction.
+- **A DOCX field is truncated.** "Opportunity Number: OP-4545941" is extracted as
+  "Opportunity Number: OP"; the number is lost.
+- **Scanned table read column by column.** OCR of the page-5 definitions table emits all terms,
+  then all definitions, so each row's term and definition are far apart in the text (62% line
+  order on that page against the transcription).

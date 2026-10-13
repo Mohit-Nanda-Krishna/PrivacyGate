@@ -1,4 +1,8 @@
-"""Evaluation and benchmarking metrics for PII detection, redaction, and structure retention."""
+"""Evaluation and benchmarking metrics for PII detection, redaction, and redaction structure preservation.
+
+Extraction fidelity (how much of the source file's structure extraction keeps)
+is measured separately in privacygate.structure.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +12,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 from pathlib import Path
+import re
 from typing import Sequence
 
 from privacygate.models import ContentBlock, Document, PIIEntity
@@ -122,14 +127,17 @@ def evaluate_detection(
     return calculate_metrics(tp=tp, fp=fp, fn=fn)
 
 
-def measure_structure_retention(
+def measure_redaction_structure_preservation(
     original_blocks: Sequence[ContentBlock],
     sanitized_blocks: Sequence[ContentBlock],
 ) -> float:
-    """Estimate structure retention between original and sanitized documents.
+    """Redaction structure preservation: share of extracted blocks that sanitization kept in place.
 
-    Measures block alignment, coordinate preservation, and non-empty continuity.
-    Target per PRD Section 26 is >= 80% (0.80).
+    Compares the sanitized blocks with the extracted blocks (same block id,
+    page/slide/paragraph, non-empty text). It says nothing about how faithfully
+    extraction captured the source file: that is extraction fidelity
+    (privacygate.structure). Redaction never drops or moves blocks, so this is
+    normally 100%.
     """
     if not original_blocks:
         return 1.0
@@ -392,14 +400,21 @@ def _covered(text: str, start: int, end: int, spans: Sequence[tuple[int, int, PI
     )
 
 
-
 # Pseudonym tokens and generic placeholders: [PERSON], [PERSON_001], [ACCOUNT_NUMBER_1000].
-_TOKEN = re.compile(r"\[[A-Z][A-Z0-9_]*\]")
+_TOKEN = re.compile(r"\[[A-Z][A-Z_]*(?:_\d+)?\]")
+# Stands in for a whole token: not alphanumeric, never present in extracted text.
 _TOKEN_MARK = "\x00"
 
 
 def _has_residual_character(original: str, sanitized: str, start: int, end: int) -> bool:
-    """Return whether a letter or digit of original[start:end] survives outside a placeholder."""
+    """Return whether a letter or digit of original[start:end] is still present in sanitized.
+
+    Tokens are replaced by one non-alphanumeric marker first, so characters inside
+    "[PERSON_001]" can never be mistaken for surviving characters of the value. The
+    original block is then aligned with the sanitized block and only characters
+    kept *at the position of the value* count; the same value elsewhere in the
+    block is a different occurrence and is judged on its own.
+    """
     stripped = _TOKEN.sub(_TOKEN_MARK, sanitized)
     matcher = SequenceMatcher(None, original, stripped, autojunk=False)
     for tag, original_start, original_end, _, _ in matcher.get_opcodes():
@@ -411,13 +426,15 @@ def _has_residual_character(original: str, sanitized: str, start: int, end: int)
     return False
 
 
-def _occurrence_block(page: PageText, start: int, end: int) -> tuple[ContentBlock, int, int] | None:
-    """Return the source block and local span when an occurrence fits in one block."""
+def _occurrence_segments(page: PageText, start: int, end: int) -> list[tuple[ContentBlock, int, int]]:
+    """The source block(s) and local spans an occurrence covers (values can wrap across OCR lines)."""
+    segments = []
     for block_start, block in page.spans:
         block_end = block_start + len(block.text)
-        if block_start <= start and end <= block_end:
-            return block, start - block_start, end - block_start
-    return None
+        low, high = max(start, block_start), min(end, block_end)
+        if low < high:
+            segments.append((block, low - block_start, high - block_start))
+    return segments
 
 
 @dataclass
@@ -474,12 +491,15 @@ class DocumentEvaluation:
     fuzzy_matches: int
     uncertain_rows: int
     false_positive_types: dict[str, int]
+    # Recall by where the value sits in the source (ground truth location_type).
+    by_location: dict[str, Score] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, object]:
         return {
             "overall": self.overall.to_dict(),
             "by_type": {key: score.to_dict() for key, score in sorted(self.by_type.items())},
             "by_channel": {key: score.to_dict() for key, score in sorted(self.by_channel.items())},
+            "by_location": {key: score.to_dict() for key, score in sorted(self.by_location.items())},
             "not_extracted": self.not_extracted,
             "fuzzy_matches": self.fuzzy_matches,
             "uncertain_rows": self.uncertain_rows,
@@ -510,7 +530,7 @@ def evaluate_document(
     occurrences = locate_ground_truth(rows, pages, fuzzy=fuzzy)
     spans = entity_page_spans(entities, pages)
 
-    overall, by_type, by_channel = Score(), {}, {}
+    overall, by_type, by_channel, by_location = Score(), {}, {}, {}
     for occurrence in occurrences:
         page_spans = spans.get(occurrence.page, [])
         if occurrence.extracted:
@@ -519,22 +539,19 @@ def evaluate_document(
             if sanitized_blocks is None:
                 occurrence.fully_redacted = _covered(text, occurrence.start, occurrence.end, page_spans)
             else:
-                located = _occurrence_block(pages[occurrence.page], occurrence.start, occurrence.end)
-                if located is None:
-                    occurrence.fully_redacted = False
-                else:
-                    original_block, local_start, local_end = located
-                    sanitized_block = sanitized_blocks.get(original_block.block_id)
-                    occurrence.fully_redacted = (
-                        sanitized_block is not None
-                        and not _has_residual_character(
-                            original_block.text, sanitized_block.text, local_start, local_end,
-                        )
+                segments = _occurrence_segments(pages[occurrence.page], occurrence.start, occurrence.end)
+                occurrence.fully_redacted = bool(segments) and all(
+                    block.block_id in sanitized_blocks
+                    and not _has_residual_character(
+                        block.text, sanitized_blocks[block.block_id].text, local_start, local_end,
                     )
+                    for block, local_start, local_end in segments
+                )
         if occurrence.row.uncertain:
             continue
         for score in (overall, by_type.setdefault(occurrence.row.entity_type, Score()),
-                      by_channel.setdefault(occurrence.channel, Score())):
+                      by_channel.setdefault(occurrence.channel, Score()),
+                      by_location.setdefault(occurrence.row.location_type or "unknown", Score())):
             score.occurrences += 1
             score.detected += occurrence.detected
             score.residual += not occurrence.fully_redacted
@@ -562,4 +579,5 @@ def evaluate_document(
         fuzzy_matches=sum(o.fuzzy for o in occurrences),
         uncertain_rows=sum(row.uncertain for row in rows),
         false_positive_types=dict(false_positive_types),
+        by_location=by_location,
     )

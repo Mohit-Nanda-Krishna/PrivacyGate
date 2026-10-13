@@ -1,0 +1,74 @@
+# Hand transcription of page 8 (page with a figure). One visual line per line, left to right;
+# the figure's three boxes are read box by box (first, second, third line), table rows across
+# the row. Lines starting with "#" are ignored.
+Group Risk Management Policy GRP-POL-001 | Version 6.0 | Internal
+6. The three lines model
+The Group applies the three lines model to establish unambiguous accountability. The model is a statement of accountability, not of
+organisational structure: an individual's line is determined by the activity performed, not by reporting line alone.
+Three Lines Model — Accountability and Named Leads
+FIRST LINE
+Own and manage risk
+Owns risks created by business
+activity
+Designs and operates daily controls
+Completes RCSA and attests
+effectiveness
+Raises issues, incidents and losses
+Lead: Sofia Marchetti-Lang (EMP-39044)
+s.marchetti@cadencefg.com
+SECOND LINE
+Oversee and challenge
+Sets framework, policy and taxonomy
+Defines appetite and tolerance levels
+Independently challenges the first
+line
+Aggregates and reports risk profile
+Lead: Miriam T. Achebe (EMP-38104)
+m.achebe@cadencefg.com
+THIRD LINE
+Provide assurance
+Independent assurance to the Board
+Audits design and operating
+effectiveness
+Assesses adequacy of the framework
+Tracks actions through to closure
+Lead: Ifeoma C. Adeyemi (EMP-41455)
+i.adeyemi@cadencefg.com
+Figure 2 — Accountability under the three lines model, with the named lead for each line.
+6.1 First line of defence
+The first line comprises revenue-generating businesses and the operational and support functions that execute transactions and
+processes. It owns its risks outright, designs and operates controls, performs RCSA, self-identifies issues, records incidents and
+remains accountable for remediation to completion. Accountability is not transferred by the existence of second-line oversight or third-
+line assurance.
+6.2 Second line of defence
+The second line comprises the Group Risk function, Compliance and the Data Privacy Office. It sets the framework, taxonomy,
+methodology and policy; defines appetite metrics and tolerances; provides independent, evidenced challenge to first-line assessments;
+aggregates and reports the Group risk profile; and approves exceptions and acceptances within delegated authority. Where a second-
+line function operates a control of its own — for example sanctions screening, operated by Fumiko L. Nakagawa's team — it is a first-
+line activity for that control and is subject to independent challenge accordingly.
+6.3 Third line of defence
+Group Internal Audit provides independent assurance to the Board on governance, risk management and internal control. It has
+unrestricted access to all records, systems, personnel and premises. It does not design controls, make management decisions or own
+risk. The Chief Internal Auditor, Ifeoma C. Adeyemi (EMP-41455, i.adeyemi@cadencefg.com), reports functionally to the Chair of the
+Audit Committee and administratively to the Chief Executive; her appointment, removal and remuneration are matters reserved to the
+Audit Committee.
+6.4 Independence safeguards
+SAFEGUARD REQUIREMENT
+Reporting lines The Group CRO (M. T. Achebe) reports to the Chief Executive and has a direct, unfettered reporting line to the Chair
+of the Board Risk Committee (A. P. Brightwell).
+Appointment and removal Appointment or removal of the Group CRO, Chief Compliance Officer or Chief Internal Auditor requires approval of
+the relevant board committee.
+Remuneration Second and third line remuneration is not linked to the financial performance of the businesses they oversee.
+Budget Second and third line budgets are approved by the relevant board committee and cannot be reduced by business
+management.
+Right of veto The Group CRO may veto any transaction, product or initiative assessed as outside appetite, subject only to Board
+Risk Committee override.
+Access Second and third line functions hold private sessions with their board committee at least twice a year without
+management present.
+6.5 Fourth-line assurance
+External auditors, regulators and independent specialist reviewers provide a further layer of assurance. Their findings are recorded in
+the Group Issue Management System on the same basis as internally raised issues, subject to the same tracking, escalation and
+closure verification requirements set out in Section 15. Current external assurance contacts are Sunita R. Balakrishnan (Halloran & Pike
+LLP, s.balakrishnan@halloranpike.example, +1 917 555-0111) and Karsten Ohlendorf (Northwind Analytics GmbH,
+k.ohlendorf@northwind.example, +49 69 5555 0148).
+Cadence Financial Group, Inc. — Uncontrolled when printed Page 8 of 35

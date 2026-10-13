@@ -152,3 +152,58 @@ This document tracks all contributions, architectural enhancements, implementati
 
 
 
+
+---
+
+## Measured Hardening Against Labelled Ground Truth (2026-10-07 to 2026-10-11)
+
+- **Author**: Harshit (`harshitchhabi`)
+- **Approach**: Audit first, then one branch and one pull request per step; every claim measured
+  with `scripts/evaluate.py` against hand-labelled ground truth.
+
+### PR #2 / #6: Ground truth and benchmark
+- `eval/ground_truth/*.csv`: 1,018 labelled PII values across the three Cadence files,
+  including values that only exist inside figures and screenshots; 20 rows marked for review.
+- `scripts/evaluate.py`, `src/privacygate/evaluation.py`: recall, precision, F1, residual PII
+  rate, structure retention, recall by channel (native / OCR / image) and gate decisions;
+  OCR-tolerant matching.
+
+### PR #4: OCR reliability
+- `extraction/pdf.py`, `extraction/ocr.py`: per-page OCR status, one retry with a longer
+  timeout, single-threaded Tesseract run in parallel; a failed page blocks the gate
+  without discarding the other pages. Fixed several app crashes found while testing.
+
+### PR #5 / #11: Detection gaps
+- `detection/names.py`: allowlist, NER clean-up, per-document name registry sweep,
+  role-labelled table cells as person context.
+- `detection/regex_detector.py`, `custom_recognizers.py`: short/labelled phones, PAN, passport,
+  PESEL, SSN last four, DOB, card/account endings, US addresses, EMP/DIR/MER IDs with OCR
+  damage; fixed the international phone pattern that never redacted the country code.
+- `validation/residual_checks.py`: gate checks independent of the NER model, so a second
+  pass cannot approve PII the detectors missed.
+
+### PR #7: Embedded content
+- DOCX headers/footers and text boxes, PPTX speaker notes, OCR of embedded screenshots;
+  PII counts by location in the audit report.
+
+### PR #12 / #13: Stable tokens across files, redacted PDF, AI model view
+- `run_batch`, `crossfile.py`: one token session across a batch and a cross-file identity
+  view (built on the `PseudonymSession` from #8); fixed name variants getting different
+  tokens within one file.
+- `derivatives.py`, `llm.py`: redacted PDF with the same page count; "What the AI model sees"
+  view and a mock model call that refuses unless the gate approved.
+
+### Follow-ups: results, controls and design documents
+- `eval/results_after.md`, `eval/results_chart.png`, `scripts/compare_results.py`: before/after
+  results and recall by location type; the benchmark tab shows measured numbers.
+- Identifier controls (TIN/EIN, unlabelled PESEL checksum, card issuer checks) with
+  `design/false_positive_controls.md`; residual diagnostics allowlists aligned with the pipeline.
+- `design/architecture.md`, `design/extraction_and_detection.md`: functional design and system
+  architecture diagrams, extraction and detection logic.
+
+### Results (Cadence files, before -> after)
+| File | Recall | Precision | Residual PII |
+|---|---|---|---|
+| Organizational Pack (PPTX) | 63.9% -> 100.0% | 91.8% -> 100.0% | 36.1% -> 0.0% |
+| Risk Management Policy (PDF) | 62.0% -> 92.3% | 82.3% -> 94.7% | 41.5% -> 8.5% |
+| TPRM Training (DOCX) | 75.0% -> 95.9% | 8.0% -> 82.1% | 25.0% -> 6.1% |

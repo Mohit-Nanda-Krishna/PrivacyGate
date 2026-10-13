@@ -1,0 +1,50 @@
+# Hand transcription of page 5 (table page). One visual line per line, left to right;
+# table rows read across the row. Lines starting with "#" are ignored.
+Group Risk Management Policy GRP-POL-001 | Version 6.0 | Internal
+4. Definitions
+The following definitions apply throughout this policy and all subordinate risk documentation.
+TERM DEFINITION
+Risk The effect of uncertainty on the Group's objectives, expressed as a combination of the consequence of an event and the
+likelihood of its occurrence.
+Inherent risk The level of risk before consideration of any mitigating control, assuming controls are absent or wholly ineffective.
+Residual risk The level of risk remaining after operation of controls assessed as designed and operating effectively.
+Target risk The level of residual risk the Group intends to achieve following completion of agreed treatment actions.
+Risk appetite The aggregate level and type of risk the Group is willing to assume in pursuit of its strategic objectives, approved by the
+Board.
+Risk tolerance The permissible variation around an appetite measure before escalation is triggered. Tolerance is narrower than the limit.
+Risk limit A hard quantitative boundary that must not be breached. A limit breach is a policy breach.
+Risk capacity The maximum risk the Group could absorb given capital, liquidity, operational capability and regulatory constraints.
+Risk owner The named individual accountable for management of a specific risk, including adequacy of its controls and treatment.
+Recorded in the register by name and employee identifier — for example, RSK-4488 is owned by Naomi K. Osadebe
+(EMP-41077).
+Control owner The named individual accountable for design, operation and testing of a specific control.
+Control A measure that modifies risk, being preventive, detective or corrective, and either manual or automated.
+Key control A control on which primary reliance is placed to keep a risk within appetite. Subject to mandatory independent testing.
+Issue An identified weakness in the design or operation of a control, or a gap between the current and required state.
+Incident An event that has occurred and caused, or had potential to cause, loss, disruption, regulatory breach, customer
+detriment or reputational damage.
+Near miss An event with potential to result in loss or detriment that did not do so, whether through control operation or through
+chance.
+Loss event An incident resulting in quantifiable financial loss, whether or not the loss has yet been booked.
+Key risk indicator (KRI) A quantifiable measure used to monitor the level of, or change in, a risk exposure over time.
+Key control indicator (KCI) A quantifiable measure of the operating performance of a control.
+RCSA Risk and Control Self-Assessment: the structured process by which the first line identifies risks, assesses controls and
+rates residual exposure.
+Risk acceptance A documented, time-bound decision to tolerate a residual risk without further treatment, taken by an authorised approver.
+Exception (waiver) A documented, time-bound approval to operate outside a requirement of this policy or a subordinate standard.
+Emerging risk A risk newly developing or changing, whose impact or likelihood is not yet well understood and cannot yet be reliably
+quantified.
+Important business service A service delivered to an external end user, the disruption of which could cause intolerable harm to customers or market
+integrity.
+Impact tolerance The maximum tolerable duration or extent of disruption to an important business service.
+Material risk taker An individual whose professional activities have a material impact on the Group's risk profile, as defined by the
+Remuneration Committee and recorded by name, employee identifier and role in the MRT Register.
+Personal data Any information relating to an identified or identifiable natural person, including name, employee identifier, corporate or
+personal e-mail, telephone number, home address, date of birth, national identifier and photographic image.
+Three lines model The accountability structure separating risk ownership (first line), oversight and challenge (second line) and independent
+assurance (third line).
+Worked illustration. Risk RSK-4488 ("Unauthorised access to customer accounts") is owned by Naomi K. Osadebe (EMP-41077,
+n.osadebe@cadencefg.com, +1 646 555-0188). Its key control CTL-IAM-04 is owned by Caleb A. Whitfield (EMP-38907,
+c.whitfield@cadencefg.com). Inherent rating is Critical (25); residual is High (16) following the March 2026 control uplift. Issue
+ISS-2026-0112 remains open against this risk with a target date of 30 September 2026.
+Cadence Financial Group, Inc. — Uncontrolled when printed Page 5 of 35

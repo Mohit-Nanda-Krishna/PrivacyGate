@@ -21,6 +21,14 @@ from privacygate.detection.names import (
     role_context_names,
     sweep_names,
 )
+from privacygate.detection.ocr_text import (
+    absorb_ocr_initials,
+    column_role_names,
+    ocr_emails,
+    ocr_identifiers,
+    ocr_surnames,
+)
+from privacygate.detection.span_repair import repair_spans
 from privacygate.detection.presidio_detector import (
     PresidioDetector,
     detect_presidio,
@@ -105,7 +113,7 @@ def _header_phone_entities(blocks: list[ContentBlock]) -> list[PIIEntity]:
 
 _INLINE_ROLE = re.compile(
     r"\b(?:created by|prepared by|led by|attested by|signed by|reviewed by|owner|author\(s\)|authors?|"
-    r"client contact|contact)\s*[:\-]?\s*(?=[A-Z])",
+    r"client contact|contact|chair(?:ed by|person)?)\s*[:\-]?\s*(?=[A-Z])",
     re.IGNORECASE,
 )
 
@@ -161,6 +169,11 @@ def detect_pii_with_registry(
        form a per-document registry; single-token NER names survive only if
        the registry confirms them.
     4. Every block is swept for registered names and their variants.
+    5. OCR'd text only: damaged e-mails, damaged registered surnames and the
+       initials in front of names, labelled passport/PAN numbers, damaged IPs,
+       and names under person columns of OCR'd tables (detection/ocr_text.py).
+    6. OCR'd text only: detections completed where OCR left a piece of the value
+       outside them (detection/span_repair.py).
     """
     allowed = frozenset(DEFAULT_ALLOWLIST | {word.lower() for word in (allowlist or ())})
     try:
@@ -180,7 +193,11 @@ def detect_pii_with_registry(
                 candidate = make_entity(block, "PERSON", *match.span(), 0.8, "pattern:name_with_initial")
                 findings[block.block_id].extend(clean_ner_entity(block, candidate, allowed))
         role_blocks, role_names = _role_context(blocks, allowed)
-        for entity in _header_phone_entities(blocks) + _stitched_country_codes(blocks, findings) + role_names:
+        column_names = column_role_names(blocks, allowed)
+        role_blocks |= {entity.block_id for entity in column_names}
+        damaged_emails = ocr_emails(blocks, [e for found in findings.values() for e in found], allowed)
+        for entity in (_header_phone_entities(blocks) + _stitched_country_codes(blocks, findings)
+                       + role_names + column_names + damaged_emails + ocr_identifiers(blocks)):
             findings[entity.block_id].append(entity)
 
         texts = {block.block_id: block.text for block in blocks}
@@ -205,7 +222,18 @@ def detect_pii_with_registry(
                 or not is_single_token(entity)
                 or registry.find(texts[block_id][entity.start:entity.end])
             ]
-        for entity in sweep_names(blocks, registry):
+        swept = sweep_names(blocks, registry) + ocr_surnames(blocks, registry)
+        for entity in swept:
+            findings[entity.block_id].append(entity)
+        # A registered person's name that NER tagged as a place ("Kulkarni" as LOCATION) is the person.
+        registered = {(e.block_id, e.start, e.end) for e in swept}
+        for block_id, found in findings.items():
+            findings[block_id] = [e for e in found
+                                  if e.entity_type != "LOCATION" or (block_id, e.start, e.end) not in registered]
+        people = [entity for found in findings.values() for entity in found if entity.entity_type == "PERSON"]
+        for entity in absorb_ocr_initials(blocks, people):
+            findings[entity.block_id].append(entity)
+        for entity in repair_spans(blocks, [e for found in findings.values() for e in found], registry):
             findings[entity.block_id].append(entity)
 
         entities: list[PIIEntity] = []

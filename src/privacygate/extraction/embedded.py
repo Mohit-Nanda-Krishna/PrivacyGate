@@ -145,7 +145,6 @@ def ocr_embedded_images(images: Sequence[EmbeddedImage]) -> EmbeddedOcrResult:
             result.failed.append(primary_image.name)
             result.report.append({"image": primary_image.name, "status": "failed", "attempts": attempts, "reason": error})
             continue
-
         result.report.append({"image": primary_image.name, "status": "ocr", "attempts": attempts, "lines": len(lines)})
 
         for occurrence in occurrences:

@@ -22,9 +22,11 @@ Evidence Document (PDF / DOCX / PPTX)
   ▼ Canonical Document Model (`Document` / `ContentBlock`)
   │
 [Stage 3: Hybrid PII Detection Engine]
-  ├── Layer 1: Structured Regex Detector (Email, Phone, SSN, IP, IBAN, Luhn-verified Credit Cards)
-  ├── Layer 2: Enterprise Custom Recognizers (Employee IDs, Client IDs, Portfolio IDs, Customer Refs)
-  └── Layer 3: Microsoft Presidio & spaCy NLP (Names, Locations, Dates, Organizations)
+  ├── Layer 1: Structured Regex Detector (Email, Phone, SSN, IP, IBAN, Luhn-verified Credit Cards,
+  │            PAN, passport, DOB, card/account endings, US street addresses)
+  ├── Layer 2: Enterprise Custom Recognizers (Employee/Director/vendor IDs, Client IDs, Portfolio IDs, Customer Refs)
+  ├── Layer 3: Microsoft Presidio & spaCy NLP (Names, Locations), filtered by a configurable allowlist
+  └── Name registry sweep: every variant of a person named anywhere in the document
   │
   ▼ Deterministic Entity Merger & Conflict Resolution
   │
@@ -35,20 +37,23 @@ Evidence Document (PDF / DOCX / PPTX)
   │
   ▼
 [Stage 5: Context-Preserving Semantic Redaction]
-  └── Replaces PII with typed placeholders (`[PERSON]`, `[EMAIL]`, `[EMPLOYEE_ID]`, etc.)
+  └── Replaces PII with stable typed tokens (`[PERSON_001]`, `[EMAIL_004]`, ...); the same person keeps
+      one token across a document, or across all files of a batch. The mapping stays in memory only.
   │
   ▼ Sanitized Document
   │
 [Stage 6: Fail-Closed Secondary Privacy Gate]
   ├── Rescans sanitized document with full hybrid detector
-  ├── Filters applied semantic placeholders
-  └── Fails closed on any residual PII or system error:
-        ├── APPROVED: 0 residual PII -> Forward to LLM
-        └── BLOCKED: Residual PII or error -> Access Denied
+  ├── Independent checks that do not use the NER model (name registry, digit runs, e-mail/ID shapes)
+  ├── Accepts only tokens issued in this run
+  └── Fails closed on residual PII found by either layer, failed OCR pages/images, or system error:
+        ├── APPROVED: no residual found -> sanitized text may go downstream
+        └── BLOCKED: residual PII, incomplete extraction or error -> nothing is sent
   │
   ▼
-[Stage 7: Zero-PII Audit Report & Streamlit Dashboard]
-  └── Generates metrics, category/risk breakdowns, and JSON audit logs (never persists raw PII).
+[Stage 7: Audit Report & Streamlit Dashboard]
+  └── Aggregate metrics, category/risk/location breakdowns and JSON audit export (counts, not raw values);
+      "What the AI model sees" view, gated mock model call, redacted PDF download.
 ```
 
 ---
@@ -60,8 +65,8 @@ Evidence Document (PDF / DOCX / PPTX)
 - **PDF Extraction**: PyMuPDF (`fitz`)
 - **Office Document Processing**: `python-docx`, `python-pptx`
 - **OCR Engine**: Tesseract OCR via `pytesseract`
-- **PII Detection**: Microsoft Presidio Analyzer, spaCy (`en_core_web_lg` 3.8.0), Python regular expressions
-- **Quality & Testing**: `pytest` (125 automated unit/integration tests)
+- **PII Detection**: Microsoft Presidio Analyzer, spaCy (`en_core_web_sm` 3.8.0, locked in `uv.lock`), Python regular expressions
+- **Quality & Testing**: `pytest` unit/integration tests; benchmark against labelled ground truth (`eval/`)
 
 ---
 
@@ -130,7 +135,7 @@ print("Residual Entities:", len(result.validation.residual_entities))
 # 2. Get sanitized text safe for LLMs
 sanitized_text = "\n\n".join(b.text for b in result.sanitized_document.blocks)
 
-# 3. Export audit report as JSON (safe, zero raw PII persisted)
+# 3. Export audit report as JSON (aggregate counts and decisions, no raw values)
 from privacygate.audit import audit_report_to_json
 audit_json = audit_report_to_json(result.audit_report)
 print(audit_json)
@@ -140,10 +145,24 @@ print(audit_json)
 
 ## Evaluation & Case Study Targets
 
-PrivacyGate includes an automated evaluation benchmark (`src/privacygate/evaluation.py`):
+Quality is measured, not asserted: `scripts/evaluate.py` runs the pipeline on the Cadence case-study
+files and scores it against hand-labelled ground truth in `eval/ground_truth/`.
 
-- **Recall**: $TP / (TP + FN)$ (Security-critical; prioritizes zero missed PII)
-- **Precision**: $TP / (TP + FP)$ (Reduces unnecessary redactions)
-- **F1 Score**: Harmonic mean of Precision and Recall
-- **Residual PII Rate**: Residual detections / Initial detections (Target: 0%)
-- **Structure Retention**: Block, coordinate, and context continuity ($\ge 80\%$)
+```bash
+uv run python scripts/evaluate.py --out eval/results_after.md --label "after"
+uv run python scripts/compare_results.py   # before/after tables + eval/results_chart.png
+```
+
+- **Recall**: share of labelled PII occurrences that were detected
+- **Precision**: share of detections that are labelled PII
+- **F1 Score**: harmonic mean of precision and recall
+- **Residual PII rate**: share of labelled occurrences with any character left unredacted
+- **Extraction fidelity** (PRD structure target $\ge 80\%$): DOCX/PPTX character coverage,
+  reading order and table-cell preservation against a reference read from the file's XML;
+  scanned PDF OCR character error rate and line order against hand-transcribed pages
+  (`eval/reference/`)
+- **Redaction structure preservation**: share of extracted blocks that sanitization kept in
+  place (id, location, non-empty text); it does not measure extraction
+
+Current numbers, the before/after comparison and known gaps are in `eval/results_after.md`;
+scoring rules and the labelling method are in `eval/README.md`.

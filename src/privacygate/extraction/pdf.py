@@ -10,7 +10,8 @@ import pymupdf
 
 from privacygate.extraction.embedded import EmbeddedImage, ocr_embedded_images
 from privacygate.extraction.errors import ExtractionError, OCRRequiredError
-from privacygate.extraction.ocr import MIN_TEXT_CHARACTERS, recognize_image, render_page
+from privacygate.extraction.figures import Figure, extract_figures
+from privacygate.extraction.ocr import MIN_TEXT_CHARACTERS, OCR_DPI, recognize_image, render_page
 from privacygate.models import ContentBlock, Document
 
 # Deterministic per-page heuristic, not proof of scanned-page classification
@@ -21,15 +22,52 @@ MIN_NATIVE_TEXT_CHARACTERS = MIN_TEXT_CHARACTERS
 OCR_WORKERS = max(1, min(4, os.cpu_count() or 1))
 
 
+def _figure_blocks(figures: list[Figure], page_number: int) -> tuple[list[ContentBlock], list[dict]]:
+    """Figure OCR lines as blocks, plus per-figure metadata (region, readability, photos)."""
+    blocks, regions = [], []
+    for figure in figures:
+        regions.append({
+            "page": page_number, "figure": figure.index, "bbox_pixels": list(figure.bbox),
+            "render_dpi": OCR_DPI, "confidence": round(figure.confidence, 1), "readable": figure.readable,
+            "photos": [list(photo) for photo in figure.photos], "variant": figure.variant,
+        })
+        for order, line in enumerate(figure.lines, start=1):
+            blocks.append(ContentBlock(
+                block_id=f"page_{page_number}_figure_{figure.index}_line_{order}",
+                text=line.text, page_number=page_number, extraction_method="figure_ocr",
+                metadata={
+                    "kind": "figure", "figure": figure.index, "block_order": order,
+                    "region_bbox_pixels": list(figure.bbox), "bbox_pixels": line.bbox,
+                    "word_boxes_pixels": line.word_boxes, "render_dpi": OCR_DPI,
+                    "ocr_confidence": round(line.confidence, 1),
+                },
+            ))
+    return blocks, regions
+
+
 def _timed_recognition(image, page_number: int):
     started = time.perf_counter()
     try:
+        # Figures first: recognize_image closes the rendered page image.
+        try:
+            figures = extract_figures(image, page_number)
+        except OCRRequiredError:
+            raise
+        except ExtractionError:
+            figures = []
+            figure_failed = True
+        else:
+            figure_failed = False
         blocks, attempts = recognize_image(image, page_number)
-        return blocks, attempts, time.perf_counter() - started, None
+        figure_blocks, regions = _figure_blocks(figures, page_number)
+        if figure_failed:
+            regions.append({"page": page_number, "figure": 0, "bbox_pixels": None, "render_dpi": OCR_DPI,
+                            "confidence": 0.0, "readable": False, "photos": [], "variant": "failed"})
+        return blocks + figure_blocks, regions, attempts, time.perf_counter() - started, None
     except OCRRequiredError:
         raise
     except ExtractionError as error:
-        return [], 2 if "after a retry" in str(error) else 1, time.perf_counter() - started, error
+        return [], [], 2 if "after a retry" in str(error) else 1, time.perf_counter() - started, error
 
 
 def extract_pdf(path: str | Path) -> Document:
@@ -63,6 +101,7 @@ def extract_pdf(path: str | Path) -> Document:
             report: dict[int, dict] = {}
             failures: dict[int, ExtractionError] = {}
             pending: dict[Future, int] = {}
+            figure_regions: list[dict] = []
             embedded_images: list[EmbeddedImage] = []
             embedded_failures: list[str] = []
             embedded_reports: list[dict] = []
@@ -72,8 +111,14 @@ def extract_pdf(path: str | Path) -> Document:
             def collect(done) -> None:
                 for future in done:
                     number = pending.pop(future)
-                    blocks, attempts, seconds, error = future.result()
+                    res = future.result()
+                    if len(res) == 5:
+                        blocks, regions, attempts, seconds, error = res
+                    else:
+                        blocks, attempts, seconds, error = res
+                        regions = []
                     page_blocks[number] = blocks
+                    figure_regions.extend(regions)
                     report[number].update(
                         status="failed" if error else "ocr", attempts=attempts, seconds=round(seconds, 2),
                     )
@@ -223,6 +268,7 @@ def extract_pdf(path: str | Path) -> Document:
                 "embedded_images": embedded_reports,
                 "embedded_images_failed": embedded_failures,
                 "extraction_warnings": extraction_warnings,
+                "figure_regions": sorted(figure_regions, key=lambda r: (r["page"], r["figure"])),
             }
             return document
     except ExtractionError:

@@ -51,12 +51,14 @@ def _is_timeout(error: Exception) -> bool:
     return isinstance(error, RuntimeError) and "timeout" in str(error).lower()
 
 
-def run_ocr(image: Image.Image, label: str, dpi: int | None = OCR_DPI) -> tuple[dict, int]:
+def run_ocr(
+    image: Image.Image, label: str, dpi: int | None = OCR_DPI, config: str = "--psm 3",
+) -> tuple[dict, int]:
     """Run Tesseract with one longer retry on timeout; returns (data, attempts).
 
     label names the source in errors ("page 3", "image image7.png"). Errors
     never include Tesseract stderr, paths or recognized text. Does not close
-    the image. Safe to call from worker threads.
+    the image. Safe to call from worker threads. config applies when dpi is None.
     """
     attempts = 0
     for timeout in (OCR_TIMEOUT_SECONDS, OCR_RETRY_TIMEOUT_SECONDS):
@@ -64,7 +66,7 @@ def run_ocr(image: Image.Image, label: str, dpi: int | None = OCR_DPI) -> tuple[
         try:
             if dpi is None:
                 data = pytesseract.image_to_data(
-                    image, lang="eng", config="--psm 3",
+                    image, lang="eng", config=config,
                     output_type=pytesseract.Output.DICT, timeout=timeout,
                 )
             else:
@@ -85,8 +87,14 @@ def run_ocr(image: Image.Image, label: str, dpi: int | None = OCR_DPI) -> tuple[
     raise AssertionError("unreachable")
 
 
-def group_lines(data: dict, label: str) -> list[tuple[tuple[int, int, int], str, list[int]]]:
-    """Group Tesseract words into (block/paragraph/line key, text, pixel bbox) lines."""
+def group_lines(
+    data: dict, label: str,
+) -> list[tuple[tuple[int, int, int], str, list[int], list[list[int]]]]:
+    """Group Tesseract words into (block/paragraph/line key, text, pixel bbox, word boxes) lines.
+
+    Line text is the words joined by single spaces, so word i's characters can
+    be located from the word lengths; word boxes are pixel [left, top, right, bottom].
+    """
     try:
         lines = {}
         for index, text in enumerate(data["text"]):
@@ -96,12 +104,13 @@ def group_lines(data: dict, label: str) -> list[tuple[tuple[int, int, int], str,
             left, top = data["left"][index], data["top"][index]
             right, bottom = left + data["width"][index], top + data["height"][index]
             if key not in lines:
-                lines[key] = {"words": [], "bbox": [left, top, right, bottom]}
+                lines[key] = {"words": [], "bbox": [left, top, right, bottom], "boxes": []}
             line = lines[key]
             line["words"].append(text.strip())
+            line["boxes"].append([left, top, right, bottom])
             box = line["bbox"]
             line["bbox"] = [min(box[0], left), min(box[1], top), max(box[2], right), max(box[3], bottom)]
-        return [(key, " ".join(line["words"]), line["bbox"]) for key, line in lines.items()]
+        return [(key, " ".join(line["words"]), line["bbox"], line["boxes"]) for key, line in lines.items()]
     except Exception:
         raise ExtractionError(f"OCR returned malformed output for {label}.") from None
 
@@ -128,10 +137,10 @@ def _blocks_from_data(data: dict, page_number: int) -> list[ContentBlock]:
             metadata={
                 "block_order": order, "source_block_number": key[0],
                 "source_paragraph_number": key[1], "source_line_number": key[2],
-                "bbox_pixels": bbox, "render_dpi": OCR_DPI,
+                "bbox_pixels": bbox, "word_boxes_pixels": word_boxes, "render_dpi": OCR_DPI,
             },
         )
-        for order, (key, text, bbox) in enumerate(group_lines(data, f"page {page_number}"), start=1)
+        for order, (key, text, bbox, word_boxes) in enumerate(group_lines(data, f"page {page_number}"), start=1)
     ]
     if sum(character.isalnum() for block in blocks for character in block.text) < MIN_TEXT_CHARACTERS:
         raise ExtractionError(

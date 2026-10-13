@@ -73,3 +73,5 @@ class AuditReport:
     # Aggregate embedded-image OCR status and warning count; no source names.
     embedded_images: dict[str, int] = field(default_factory=dict)
     extraction_warning_count: int = 0
+    # Figures withheld from the text (and masked in the redacted PDF) because their OCR was not trusted.
+    unreadable_figures: int = 0

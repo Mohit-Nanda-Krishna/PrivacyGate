@@ -1,0 +1,13 @@
+file,page,location_type,entity_type,value,uncertain,note
+holdout_scan.pdf,1,prose,PERSON,Callum Ferreira-Wynn,,
+holdout_scan.pdf,1,prose,EMPLOYEE_ID,BWM-52914,,
+holdout_scan.pdf,1,prose,PERSON,Esmond Dunmore,,
+holdout_scan.pdf,1,prose,DATE_OF_BIRTH,22 August 1971,,
+holdout_scan.pdf,1,prose,ADDRESS,"742 Larkspur Avenue, Portland, OR 97214",,
+holdout_scan.pdf,1,prose,PHONE,+1 (971) 555-0591,,
+holdout_scan.pdf,1,prose,GOVERNMENT_ID,521-48-3907,,
+holdout_scan.pdf,1,table,PERSON,Yuki Thornbury,,
+holdout_scan.pdf,1,table,PERSON,Ingrid Haldorsen,,
+holdout_scan.pdf,1,image,EMPLOYEE_ID,BWM-48213,,
+holdout_scan.pdf,1,image,EMAIL,t.bakshi@brightwater-mutual.example,,
+holdout_scan.pdf,1,image,IP_ADDRESS,198.51.100.207,,

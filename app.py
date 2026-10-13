@@ -17,8 +17,10 @@ import streamlit as st
 from privacygate.audit import audit_report_to_json
 from privacygate.detection import DetectionError
 from privacygate.extraction import ExtractionError
-from privacygate.evaluation import measure_structure_retention
+from privacygate.evaluation import measure_redaction_structure_preservation
 from privacygate.models import PIIEntity
+from privacygate.derivatives import REVIEW_WATERMARK, redact_pdf
+from privacygate.llm import GateRefusedError, build_llm_payload, mock_llm_call
 from privacygate.pipeline import run_batch, run_pipeline
 from privacygate.risk.classifier import RISK_MAPPING
 
@@ -198,7 +200,8 @@ with st.sidebar:
 
     st.markdown("---")
     st.markdown("**Core Security Policy:**")
-    st.caption("• Raw PII never sent downstream\n• Fail-closed enforcement\n• Traceable source coordinates\n• Zero-PII audit logging")
+    st.caption("• Only gate-approved, sanitized text may go downstream\n• Fail-closed on extraction or "
+               "validation errors\n• Traceable source coordinates\n• Audit export holds counts, not raw values")
 
 # File selection logic
 uploaded_files = st.file_uploader(
@@ -223,7 +226,7 @@ selection_signature = tuple(
 )
 previous_signature = st.session_state.get("results_signature")
 if previous_signature is not None and previous_signature != selection_signature:
-    for key in ("pipeline_result", "batch_result", "results_signature"):
+    for key in ("pipeline_result", "batch_result", "results_signature", "redacted_pdfs", "mock_llm_reply"):
         st.session_state.pop(key, None)
 
 if selected:
@@ -258,6 +261,22 @@ if selected:
                     renames = {path.name: name for path, (name, _) in zip(paths, selected)}
                     for summary in batch.cross_file.values():
                         summary.occurrences = [(renames.get(file, file), where) for file, where in summary.occurrences]
+                # Masked PDFs are built now because uploaded bytes are deleted right after processing.
+                redacted_pdfs = {}
+                for path, (name, _), item in zip(paths, selected, results):
+                    if Path(name).suffix.lower() == ".pdf":
+                        approved_file = item.validation.status == "APPROVED"
+                        # Both variants now: the strict one masks every figure region whole.
+                        redacted_pdfs[name] = {
+                            mode: redact_pdf(
+                                path, item.document, item.sanitized_document,
+                                watermark=None if approved_file else REVIEW_WATERMARK,
+                                mask_all_figures=mode == "strict",
+                            )
+                            for mode in ("strict", "standard")
+                        }
+                st.session_state["redacted_pdfs"] = redacted_pdfs
+                st.session_state.pop("mock_llm_reply", None)
                 st.session_state["batch_result"] = batch
                 st.session_state["pipeline_result"] = results[0]
                 st.session_state["results_signature"] = selection_signature
@@ -268,6 +287,7 @@ if selected:
                 st.session_state["pipeline_result"] = None
                 st.session_state["batch_result"] = None
                 st.session_state.pop("results_signature", None)
+                st.session_state.pop("redacted_pdfs", None)
             finally:
                 for temp_path in temp_paths:
                     temp_path.unlink(missing_ok=True)
@@ -329,14 +349,15 @@ if "pipeline_result" in st.session_state and st.session_state["pipeline_result"]
         "✂️ 3. Semantic Redaction Preview",
         "📊 4. Audit Report & Export",
         "📈 5. Quality Benchmark",
+        "🤖 6. What the AI Model Sees",
     ]
     if batch_result is not None:
-        tab_labels.append("🔗 6. Cross-File Identities")
+        tab_labels.append("🔗 7. Cross-File Identities")
     tabs = st.tabs(tab_labels)
-    tab_summary, tab_findings, tab_redaction, tab_audit, tab_benchmarks = tabs[:5]
+    tab_summary, tab_findings, tab_redaction, tab_audit, tab_benchmarks, tab_ai = tabs[:6]
 
     if batch_result is not None:
-        with tabs[5]:
+        with tabs[6]:
             st.subheader("Cross-File Identities")
             st.caption(
                 "One token session covers the whole batch, so the same person carries the same token in "
@@ -365,6 +386,66 @@ if "pipeline_result" in st.session_state and st.session_state["pipeline_result"]
                 st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
             else:
                 st.info("No tokens match the current filters.")
+
+    with tab_ai:
+        st.subheader("What the AI Model Sees")
+        payload = build_llm_payload(sanitized)
+        approved = validation.status == "APPROVED"
+        a1, a2, a3 = st.columns(3)
+        a1.metric("Characters", f"{len(payload):,}")
+        a2.metric("Pseudonym tokens", len(re.findall(r"\[[A-Z][A-Z_]*(?:_\d+)?\]", payload)))
+        a3.metric("Gate", validation.status)
+        st.caption(
+            "This is the exact sanitized text a downstream model would receive. "
+            + ("The gate approved it." if approved else
+               "The gate BLOCKED this document, so it would not be sent; shown here for review only.")
+        )
+        st.text_area("Sanitized payload", payload, height=300, disabled=True)
+
+        st.markdown("#### Mock model call")
+        st.caption("Local mock only: no network access and no API keys. It refuses unless the gate approved.")
+        instruction = st.text_input("Instruction for the model", value="Summarise the key risks in this document.")
+        if st.button("Send to mock LLM", disabled=False):
+            try:
+                st.session_state["mock_llm_reply"] = mock_llm_call(sanitized, validation, instruction).text
+            except GateRefusedError as refusal:
+                st.session_state["mock_llm_reply"] = None
+                st.error(str(refusal))
+        if st.session_state.get("mock_llm_reply"):
+            st.success(st.session_state["mock_llm_reply"])
+
+        variants = (st.session_state.get("redacted_pdfs") or {}).get(doc.filename)
+        if variants is not None and doc.file_type == "pdf":
+            st.markdown("#### Redacted PDF")
+            strict = st.checkbox(
+                "Mask all figures", value=True,
+                help="Masks every detected figure and photo region whole, whatever its OCR confidence, because "
+                     "OCR may not read every value inside a figure. Off: only unreadable figures are masked "
+                     "whole; readable figures keep their text with detected values masked.",
+            )
+            masked = variants["strict" if strict else "standard"]
+            st.caption(
+                f"{masked.page_count} pages (same as the source), {masked.boxes} masked areas, "
+                f"document metadata removed. Masks follow the final sanitized text; scanned pages "
+                f"have the image pixels under each mask destroyed."
+                + (f" {masked.unlocated} replaced spans could not be placed on the page." if masked.unlocated else "")
+                + (f" {masked.strict_figures} figure regions masked (strict mode)." if masked.strict_figures else "")
+                + (f" {masked.unreadable_figures} figure regions masked as unreadable."
+                   if masked.unreadable_figures and not masked.strict_figures else "")
+                + (f" {masked.photos} photo or barcode regions masked." if masked.photos else "")
+                + (f" Figure scan failed on {masked.figure_scan_failures} pages: figures there may be unmasked."
+                   if masked.figure_scan_failures else "")
+            )
+            pdf_name = f"{Path(doc.filename).stem}_redacted.pdf"
+            if approved:
+                st.download_button("⬇️ Download redacted PDF", masked.data, file_name=pdf_name,
+                                   mime="application/pdf")
+            else:
+                st.warning("The gate blocked this document: the masked copy may still contain personal data.")
+                if st.checkbox("I understand: download a watermarked review copy for internal review only"):
+                    st.download_button("⬇️ Download review copy (not approved)", masked.data,
+                                       file_name=f"{Path(doc.filename).stem}_review_copy.pdf",
+                                       mime="application/pdf")
 
     with tab_summary:
         st.subheader("Document Extraction Summary")
@@ -494,6 +575,10 @@ if "pipeline_result" in st.session_state and st.session_state["pipeline_result"]
         m4.metric("Medium Risk", audit.counts_by_risk.get("MEDIUM", 0))
         avg_conf = (sum(e.confidence for e in entities) / len(entities)) if entities else 0.0
         m5.metric("Avg Confidence", f"{avg_conf:.0%}")
+        if audit.unreadable_figures:
+            st.info(f"{audit.unreadable_figures} figure(s) could not be read reliably: their text is withheld "
+                    "from the sanitized output as [FIGURE_UNREADABLE_n] and the figures are masked in the "
+                    "redacted PDF.")
 
         if audit.counts_by_location:
             st.markdown("#### PII by Location")
@@ -635,13 +720,13 @@ if "pipeline_result" in st.session_state and st.session_state["pipeline_result"]
         st.markdown(
             """
             These metrics reflect the current document's processing results.
-            Structure retention is measured by comparing original and sanitized
-            document blocks. Residual PII is based on the firewall's validation
-            scan. Detection precision and recall require a ground-truth dataset.
+            Residual PII is based on the firewall's validation scan. Detection
+            precision and recall, and extraction fidelity, need references and
+            are measured on the labelled case-study files below.
             """
         )
 
-        structure_retention = measure_structure_retention(
+        redaction_preservation = measure_redaction_structure_preservation(
             doc.blocks,
             sanitized.blocks,
         )
@@ -650,9 +735,10 @@ if "pipeline_result" in st.session_state and st.session_state["pipeline_result"]
         b1, b2, b3 = st.columns(3)
 
         b1.metric(
-            "Structure Retention",
-            f"{structure_retention:.1%}",
-            "Target: >=80%",
+            "Redaction structure preservation",
+            f"{redaction_preservation:.1%}",
+            help="Share of extracted blocks that sanitization kept in place (same id, location, non-empty text). "
+                 "It does not measure how well extraction captured the file.",
         )
 
         b2.metric(
@@ -681,3 +767,71 @@ if "pipeline_result" in st.session_state and st.session_state["pipeline_result"]
                 "No residual PII was detected, but the privacy gate has not "
                 "approved the document. Review the validation reason above."
             )
+
+        st.markdown("#### Benchmark on the labelled case-study files")
+        # Only measured numbers are shown: they come from scripts/evaluate.py runs against the
+        # labelled Cadence ground truth (eval/), not from this document.
+        benchmark_path = next(
+            (path for path in (Path("eval/results_after.json"), Path("eval/results_before.json")) if path.exists()),
+            None,
+        )
+        if benchmark_path is None:
+            st.info("No benchmark results found. Run `uv run python scripts/evaluate.py --out eval/results_after.md`.")
+        else:
+            benchmark = json.loads(benchmark_path.read_text(encoding="utf-8"))
+            st.caption(
+                f"Measured {benchmark['date']} ({benchmark['label']}) with `scripts/evaluate.py` on the three "
+                "Cadence case-study files against the hand-labelled ground truth in `eval/ground_truth/`. "
+                "These are benchmark results, not measurements of the document above. Definitions: `eval/README.md`."
+            )
+
+            def _fmt(value):
+                return "n/a" if value is None else f"{value * 100:.1f}%"
+
+            total = benchmark["total"]
+            b1, b2, b3, b4 = st.columns(4)
+            b1.metric("Recall (all files)", _fmt(total["recall"]))
+            b2.metric("Precision (all files)", _fmt(total["precision"]))
+            b3.metric("F1 (all files)", _fmt(total["f1"]))
+            b4.metric("Residual PII rate", _fmt(total["residual_rate"]), help="Lower is better.")
+            st.dataframe(
+                pd.DataFrame([{
+                    "File": item["file"],
+                    "Recall": _fmt(item["overall"]["recall"]),
+                    "Precision": _fmt(item["overall"]["precision"]),
+                    "Residual PII": _fmt(item["overall"]["residual_rate"]),
+                    "Redaction structure preservation": _fmt(
+                        item.get("redaction_structure_preservation", item.get("structure_retention"))),
+                    "Gate (1 pass)": item["gate_single_pass"],
+                    "Gate (2 passes)": item["gate_multi_pass"],
+                } for item in benchmark["files"]]),
+                use_container_width=True, hide_index=True,
+            )
+            st.caption("Redaction structure preservation: share of extracted blocks that sanitization kept in place; "
+                       "it does not measure extraction.")
+            fidelity_rows = [item for item in benchmark["files"] if item.get("extraction_fidelity")]
+            if fidelity_rows:
+                st.markdown("##### Extraction fidelity")
+                st.dataframe(
+                    pd.DataFrame([{
+                        "File": item["file"],
+                        "Reference": "XML of the file" if item["extraction_fidelity"]["kind"] == "xml_reference"
+                        else "hand transcription, pages " + ", ".join(
+                            str(page["page"]) for page in item["extraction_fidelity"]["pages"]),
+                        "Character coverage": _fmt(item["extraction_fidelity"].get("character_coverage")),
+                        "Reading order": _fmt(item["extraction_fidelity"].get("reading_order",
+                                                                              item["extraction_fidelity"].get("line_order"))),
+                        "Table cells": _fmt(item["extraction_fidelity"].get("table_cells")),
+                        "OCR CER": _fmt(item["extraction_fidelity"].get("cer")),
+                    } for item in fidelity_rows]),
+                    use_container_width=True, hide_index=True,
+                )
+                st.markdown(
+                    "- **Character coverage**: share of the reference's letters and digits found in the extracted text.\n"
+                    "- **Reading order**: share of consecutive reference paragraphs/lines found in the same order.\n"
+                    "- **Table cells**: share of reference table cells extracted with the same text at the same row/column.\n"
+                    "- **OCR CER**: character error rate of OCR against hand-transcribed scanned pages (lower is better)."
+                )
+            chart = Path("eval/results_chart.png")
+            if chart.exists() and benchmark_path.name == "results_after.json":
+                st.image(str(chart), caption="Before vs after (eval/results_after.md)")

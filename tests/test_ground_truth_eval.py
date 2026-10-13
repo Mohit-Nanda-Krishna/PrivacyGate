@@ -150,6 +150,46 @@ def test_sanitized_document_compares_only_the_matching_block():
     assert result.overall.residual == 0
 
 
+def test_fully_tokenised_block_has_zero_residual_even_when_token_letters_match():
+    # Uppercase names and digits that also occur inside the tokens: "PERSON", "001", "PHONE".
+    text = "PERSON ONE: OSNER PEERS +1 (555) 0101, NOEL HOPE"
+    document = _doc(_block("b1", text))
+    sanitized = _doc(_block("b1", "PERSON ONE: [PERSON_001] [PHONE_001], [PERSON_002]"))
+    rows = [_row("OSNER PEERS"), _row("+1 (555) 0101", "PHONE"), _row("NOEL HOPE")]
+    entities = [_entity("b1", text, value) for value in ("OSNER PEERS", "+1 (555) 0101", "NOEL HOPE")]
+    result = evaluate_document(document, entities, rows, sanitized_document=sanitized)
+    assert result.overall.occurrences == 3
+    assert result.overall.residual == 0
+
+
+def test_half_redacted_value_is_residual():
+    text = "Passport TK4820913 on file"
+    document = _doc(_block("b1", text))
+    sanitized = _doc(_block("b1", "Passport TK[PHONE_001] on file"))
+    result = evaluate_document(document, [_entity("b1", text, "4820913", "PHONE_NUMBER")],
+                               [_row("TK4820913", "GOVERNMENT_ID")], sanitized_document=sanitized)
+    assert result.overall.residual == 1
+
+
+def test_same_value_twice_only_the_unredacted_occurrence_is_residual():
+    text = "Owner Zelda Quark; later Zelda Quark again"
+    document = _doc(_block("b1", text))
+    sanitized = _doc(_block("b1", "Owner [PERSON_001]; later Zelda Quark again"))
+    result = evaluate_document(document, [_entity("b1", text, "Zelda Quark")], [_row("Zelda Quark")],
+                               sanitized_document=sanitized)
+    assert result.overall.occurrences == 2
+    assert result.overall.residual == 1
+
+
+def test_value_wrapped_across_two_blocks_is_judged_per_block():
+    document = _doc(_block("b1", "call +1"), _block("b2", "(555) 010-2030 now"))
+    rows = [_row("+1 (555) 010-2030", "PHONE")]
+    redacted = _doc(_block("b1", "call [PHONE_001]"), _block("b2", "[PHONE_001] now"))
+    assert evaluate_document(document, [], rows, sanitized_document=redacted).overall.residual == 0
+    half = _doc(_block("b1", "call +1"), _block("b2", "[PHONE_001] now"))
+    assert evaluate_document(document, [], rows, sanitized_document=half).overall.residual == 1
+
+
 def test_uncertain_rows_are_neutral():
     text = "Mailbox team@example.test"
     document = _doc(_block("b1", text))
@@ -170,6 +210,16 @@ def test_channel_split_uses_extraction_method_and_image_pages():
     result = evaluate_document(document, [PIIEntity("PERSON", 0, 11, 0.9, "t", "p1")], rows)
     assert result.by_channel["native"].recall == 1.0
     assert result.by_channel["image"].recall == 0.0
+
+
+def test_recall_is_split_by_location_type():
+    text = "Owner Zelda Quark; table cell Fred Bloggs"
+    document = _doc(_block("b1", text))
+    rows = [_row("Zelda Quark", location_type="prose"), _row("Fred Bloggs", location_type="table")]
+    result = evaluate_document(document, [_entity("b1", text, "Zelda Quark")], rows)
+    assert result.by_location["prose"].recall == 1.0
+    assert result.by_location["table"].recall == 0.0
+    assert set(result.to_dict()["by_location"]) == {"prose", "table"}
 
 
 def test_load_ground_truth_reads_and_validates_columns(tmp_path: Path):
