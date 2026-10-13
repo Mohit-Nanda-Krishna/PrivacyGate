@@ -51,12 +51,14 @@ def _is_timeout(error: Exception) -> bool:
     return isinstance(error, RuntimeError) and "timeout" in str(error).lower()
 
 
-def run_ocr(image: Image.Image, label: str, dpi: int | None = OCR_DPI) -> tuple[dict, int]:
+def run_ocr(
+    image: Image.Image, label: str, dpi: int | None = OCR_DPI, config: str = "--psm 3",
+) -> tuple[dict, int]:
     """Run Tesseract with one longer retry on timeout; returns (data, attempts).
 
     label names the source in errors ("page 3", "image image7.png"). Errors
     never include Tesseract stderr, paths or recognized text. Does not close
-    the image. Safe to call from worker threads.
+    the image. Safe to call from worker threads. config applies when dpi is None.
     """
     attempts = 0
     for timeout in (OCR_TIMEOUT_SECONDS, OCR_RETRY_TIMEOUT_SECONDS):
@@ -64,7 +66,7 @@ def run_ocr(image: Image.Image, label: str, dpi: int | None = OCR_DPI) -> tuple[
         try:
             if dpi is None:
                 data = pytesseract.image_to_data(
-                    image, lang="eng", config="--psm 3",
+                    image, lang="eng", config=config,
                     output_type=pytesseract.Output.DICT, timeout=timeout,
                 )
             else:

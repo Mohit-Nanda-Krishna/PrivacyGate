@@ -85,6 +85,7 @@ def test_audit_allowlists_metadata_and_never_exports_source_strings() -> None:
         "failed_pages": [2],
         "embedded_images": {"ocr": 0, "skipped_vector": 0, "skipped_tiny": 0, "failed": 1, "unknown": 1},
         "warnings": {"count": 1},
+        "unreadable_figures_withheld": 0,
     }
 
 
