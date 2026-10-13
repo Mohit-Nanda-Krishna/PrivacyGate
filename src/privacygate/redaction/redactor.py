@@ -92,6 +92,14 @@ class PseudonymSession:
             self._issued_tokens.add(token)
         return token
 
+    def unreadable_figure_token(self) -> str:
+        """A new [FIGURE_UNREADABLE_n] token for a figure withheld because its OCR was not trusted."""
+        number = self._counters.get("FIGURE_UNREADABLE", 0) + 1
+        self._counters["FIGURE_UNREADABLE"] = number
+        token = f"[FIGURE_UNREADABLE_{number}]"
+        self._issued_tokens.add(token)
+        return token
+
 
 def redact_text(
     text: str, entities: Sequence[PIIEntity], session: PseudonymSession | None = None,

@@ -7,13 +7,19 @@ removed, keeping the page count and layout:
 * native text: the detected value is located with page.search_for() inside
   its source block's rectangle and removed with a true redaction (the text is
   deleted from the content stream, not just covered);
-* scanned (OCR) pages: the Tesseract word boxes overlapping the detection are
-  converted from rendered pixels to PDF coordinates and redacted with
-  PDF_REDACT_IMAGE_PIXELS, so the image pixels underneath are destroyed;
+* scanned (OCR) pages and their figures: the Tesseract word boxes overlapping
+  the detection are converted from rendered pixels to PDF coordinates and
+  redacted with PDF_REDACT_IMAGE_PIXELS, so the image pixels underneath are
+  destroyed;
+* figures on scanned pages (document.metadata["figure_regions"]): photo
+  and barcode regions are always masked, and a figure whose OCR was not
+  confident enough to trust is masked whole, so no figure is left readable that was not
+  scanned for PII;
 * document metadata (title, author, ...) and XMP metadata are cleared.
 
-Detections that cannot be located on the page are counted in the report; the
-caller must not treat such a derivative as fully masked.
+Detections that cannot be located on the page, and pages whose figure scan
+failed, are counted in the report; the caller must not treat such a
+derivative as fully masked.
 """
 
 from __future__ import annotations
@@ -35,6 +41,15 @@ class RedactedPdf:
     boxes: int = 0
     unlocated: int = 0  # detections that could not be placed on the page
     by_method: dict[str, int] = field(default_factory=dict)
+    unreadable_figures: int = 0  # figure regions masked whole because their OCR was not trusted
+    photos: int = 0  # photo and barcode regions masked
+    figure_scan_failures: int = 0  # pages whose figure scan failed (figures there may be unmasked)
+
+
+def _pixel_rect(page: pymupdf.Page, box: list[int], dpi: int) -> pymupdf.Rect:
+    """Rendered-page pixels -> unrotated page coordinates."""
+    scale = 72.0 / dpi
+    return pymupdf.Rect(box[0] * scale, box[1] * scale, box[2] * scale, box[3] * scale) * page.derotation_matrix
 
 
 def _word_spans(text: str) -> list[tuple[int, int]]:
@@ -54,14 +69,11 @@ def _ocr_rects(page: pymupdf.Page, block: ContentBlock, entity: PIIEntity) -> li
     spans = _word_spans(block.text)
     if len(spans) != len(boxes):
         return []
-    scale = 72.0 / dpi
-    rects = []
-    for (start, end), (left, top, right, bottom) in zip(spans, boxes):
-        if start < entity.end and end > entity.start:
-            # Rendered pixels -> unrotated page coordinates.
-            rect = pymupdf.Rect(left * scale, top * scale, right * scale, bottom * scale)
-            rects.append(rect * page.derotation_matrix)
-    return rects
+    return [
+        _pixel_rect(page, box, dpi)
+        for (start, end), box in zip(spans, boxes)
+        if start < entity.end and end > entity.start
+    ]
 
 
 def _native_rects(page: pymupdf.Page, block: ContentBlock, value: str) -> list[pymupdf.Rect]:
@@ -126,7 +138,7 @@ def redact_pdf(
                 report.unlocated += 1
                 continue
             page = pdf[block.page_number - 1]
-            if block.extraction_method == "ocr":
+            if block.extraction_method in ("ocr", "figure_ocr"):
                 rects = _ocr_rects(page, block, entity)
             else:
                 rects = _native_rects(page, block, block.text[entity.start:entity.end])
@@ -139,6 +151,20 @@ def redact_pdf(
             method = block.extraction_method or "unknown"
             report.by_method[method] = report.by_method.get(method, 0) + 1
             touched.add(page.number)
+        for region in document.metadata.get("figure_regions", []):
+            page = pdf[region["page"] - 1]
+            if region["bbox_pixels"] is None:
+                report.figure_scan_failures += 1
+                continue
+            masks = [] if region["readable"] else [region["bbox_pixels"]]
+            # Inside an unreadable figure the whole-figure mask already covers the photos.
+            photos = region["photos"] if region["readable"] else []
+            for box in masks + photos:
+                page.add_redact_annot(_pixel_rect(page, box, region["render_dpi"]), fill=(0, 0, 0))
+                touched.add(page.number)
+            report.unreadable_figures += len(masks)
+            report.photos += len(photos)
+            report.boxes += len(masks) + len(photos)
         for number in sorted(touched):
             pdf[number].apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_PIXELS)
         if watermark:

@@ -13,6 +13,7 @@ from privacygate.detection.names import NameRegistry, merge_registries, sweep_na
 from privacygate.extraction import extract_document
 from privacygate.models import AuditReport, Document, PIIEntity, ValidationResult
 from privacygate.redaction import PseudonymSession, RedactionRecord, redact_document
+from privacygate.redaction.figures import withhold_unreadable_figures
 from privacygate.risk import classify_risks
 from privacygate.validation import validate_privacy
 from privacygate.validation.privacy_gate import found_by_independent_checks
@@ -57,8 +58,10 @@ def _sanitize(
     # 3. Risk Classification
     classify_risks(entities)
 
-    # 4. Semantic Redaction
+    # 4. Semantic Redaction. Figures the redacted PDF masks as unreadable are withheld from
+    # the text too, so the text and PDF outputs hide the same content.
     sanitized_doc, redactions = redact_document(document, entities, session=pseudonyms)
+    sanitized_doc, unreadable_figures = withhold_unreadable_figures(document, sanitized_doc, pseudonyms)
 
     # 5. Secondary Privacy Scan
     validation = validate_privacy(
@@ -101,6 +104,7 @@ def _sanitize(
         detected_entities=entities,
         redacted_count=len(redactions),
         validation_result=validation,
+        unreadable_figures=unreadable_figures,
     )
 
     residual_diagnostics = build_residual_diagnostics(validation.residual_entities)
